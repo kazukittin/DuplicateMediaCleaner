@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(pip --version)",
+      "Bash(pip install *)",
+      "Bash(python -c \"from backend.src.core.hasher import sha256_hash, compute_image_hashes; print\\('OK'\\)\")",
+      "Bash(python -c \"from backend.src.main import create_app; print\\('Backend import OK'\\)\")",
+      "Bash(npm run *)",
+      "Bash(rm -rf E:/DuplicateMediaCleaner/frontend/dist-electron)",
+      "Bash(npx vite *)"
+    ]
+  }
+}
