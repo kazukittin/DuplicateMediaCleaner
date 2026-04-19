@@ -4,6 +4,7 @@ from pathlib import Path
 import imagehash
 from PIL import Image
 import cv2
+import numpy as np
 import base64
 import io
 from typing import Optional
@@ -98,3 +99,38 @@ def phash_distance(h1: str, h2: str) -> float:
         return 1.0 - (dist / max_dist)
     except Exception:
         return 0.0
+
+def compute_quality_scores(filepath: str, file_type: str) -> tuple[int, int]:
+    """Returns (blur_score, noise_score) from 0 to 100, where higher is worse (more blurry/noisy)."""
+    try:
+        if file_type == 'image':
+            img = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)
+        else:
+            cap = cv2.VideoCapture(filepath)
+            # 映像の真ん中あたりのフレームを取得
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, total_frames // 2))
+            ret, frame = cap.read()
+            cap.release()
+            if not ret: return 0, 0
+            img = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            
+        if img is None: return 0, 0
+        
+        # Blur score: using Laplacian variance (high variance = sharp, low variance = blurry)
+        lap_var = cv2.Laplacian(img, cv2.CV_64F).var()
+        # threshold ~100 is typically considered blurry. We map variance to a 0-100 score.
+        # var: 0 -> 100%, var: 300+ -> 0%
+        blur_score = int(max(0, min(100, 100 - (lap_var / 3.0))))
+        
+        # Noise score: subtract median blur and find mean absolute difference
+        blurred = cv2.medianBlur(img, 3)
+        diff = cv2.absdiff(img, blurred)
+        noise_mean = float(np.mean(diff))
+        # mean diff is usually 1-3 for clean images, 10+ for very noisy images.
+        noise_score = int(max(0, min(100, (noise_mean - 2.0) * 10.0)))
+        
+        return blur_score, noise_score
+    except Exception:
+        return 0, 0
+

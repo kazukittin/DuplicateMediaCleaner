@@ -9,11 +9,12 @@ import socketio
 
 from ..core.scanner import ScanConfig, collect_files, scan_file_sync
 from ..core.grouper import group_files
-from ..db.cache import get_cache_stats, purge_missing_entries
+from ..db.cache import get_cache_stats, purge_missing_entries, mark_deleted, get_deleted_paths
 
 sio = socketio.AsyncServer(cors_allowed_origins='*', async_mode='asgi')
 
-scan_sessions: dict[str, dict] = {}
+# 最後のスキャン結果をグローバルに保持（sid に依存しないため再接続後も削除可能）
+latest_session: dict | None = None
 cancel_flags: dict[str, bool] = {}
 
 LOGS_DIR = Path(os.environ.get('APPDATA', '')) / 'DuplicateMediaCleaner' / 'logs'
@@ -62,15 +63,15 @@ async def scan_cancel(sid, data):
 
 @sio.event
 async def delete_files(sid, data):
+    global latest_session
     file_ids = set(data.get('file_ids', []))
     method = data.get('method', 'trash')
 
-    session = scan_sessions.get(sid)
-    if not session:
+    if not latest_session:
         await sio.emit('error', {'message': 'No active scan session'}, to=sid)
         return
 
-    all_files = {f['id']: f for g in session['groups'] for f in g.files}
+    all_files = {f['id']: f for g in latest_session['groups'] for f in g.files}
     to_delete = [all_files[fid] for fid in file_ids if fid in all_files]
 
     success = 0
@@ -106,6 +107,14 @@ async def delete_files(sid, data):
         writer.writeheader()
         writer.writerows(log_rows)
 
+    # 削除成功したパスを「削除済み」としてDBに記録
+    try:
+        deleted_paths = [r['path'] for r in log_rows if r['status'] == 'deleted']
+        if deleted_paths:
+            mark_deleted(deleted_paths)
+    except Exception as e:
+        print(f'[delete] Error recording deleted paths: {e}')
+
     await sio.emit('delete_complete', {
         'success': success,
         'failed': failed,
@@ -115,6 +124,7 @@ async def delete_files(sid, data):
 
 
 async def _run_scan(sid: str, config: ScanConfig):
+    global latest_session
     loop = asyncio.get_running_loop()
     start_time = loop.time()
 
@@ -129,6 +139,16 @@ async def _run_scan(sid: str, config: ScanConfig):
     file_paths = await loop.run_in_executor(_thread_executor, lambda: collect_files(
         config.folder_path, config.include_subfolders, config.file_types
     ))
+
+    # 過去に削除したファイルはスキャン対象から除外
+    deleted = get_deleted_paths()
+    if deleted:
+        before = len(file_paths)
+        file_paths = [p for p in file_paths if p not in deleted]
+        skipped = before - len(file_paths)
+        if skipped:
+            print(f'[scan] skipped {skipped} previously-deleted file(s)')
+
     total = len(file_paths)
 
     if total == 0:
@@ -213,7 +233,7 @@ async def _run_scan(sid: str, config: ScanConfig):
     recoverable_space = sum(f['size'] for g in groups for f in g.files if not f['isKeep'])
 
     scan_id = str(uuid.uuid4())
-    scan_sessions[sid] = {'scan_id': scan_id, 'groups': groups}
+    latest_session = {'scan_id': scan_id, 'groups': groups}
 
     groups_data = [
         {'groupId': g.group_id, 'similarity': g.similarity, 'fileType': g.file_type,

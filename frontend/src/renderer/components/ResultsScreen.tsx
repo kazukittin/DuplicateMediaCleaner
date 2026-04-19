@@ -21,10 +21,8 @@ import { formatBytes, formatDate } from '../utils/format'
 export default function ResultsScreen() {
   const {
     scanResult,
-    activeTab,
     activeCategory,
     selectedFileIds,
-    setActiveTab,
     setActiveCategory,
     toggleFileSelection,
     selectAllInGroup,
@@ -39,22 +37,26 @@ export default function ResultsScreen() {
 
   const { statistics, groups } = scanResult
 
-  const filteredGroups = groups.filter(
-    (g) => g.fileType === activeTab && (!activeCategory || g.category === activeCategory)
+  // すべてのグループを類似度/スコア降順でソート
+  const sortedGroups = [...groups].sort((a, b) => b.similarity - a.similarity)
+
+  const filteredGroups = sortedGroups.filter(
+    (g) => !activeCategory || g.category === activeCategory
   )
 
   const categories = Array.from(
-    new Set(groups.filter((g) => g.fileType === activeTab).map((g) => g.category))
-  ).sort()
+    new Set(sortedGroups.map((g) => g.category))
+  ).sort((a, b) => {
+    // スコアが含まれるカテゴリ名をある程度ソート（数値降順が望ましいが簡易的に文字列ソート、あるいは最初のグループ順）
+    return a.localeCompare(b);
+  })
 
   const selectedCount = getSelectedCount(useAppStore.getState())
   const selectedSize = getSelectedSize(useAppStore.getState())
 
-  // タブ内の保持以外のファイルを全選択
-  const selectAllInTab = (tab: 'image' | 'video') => {
-    groups
-      .filter((g) => g.fileType === tab)
-      .forEach((g) => selectAllInGroup(g))
+  // すべてのグループを一括選択
+  const selectAllFiltered = () => {
+    filteredGroups.forEach((g) => selectAllInGroup(g))
   }
 
   return (
@@ -113,37 +115,20 @@ export default function ResultsScreen() {
         </div>
       </div>
 
-      {/* ── Tabs ── */}
-      <div className="bg-bg-card border-b border-border px-4 flex items-stretch justify-between">
-        {/* タブ切り替え */}
-        <div className="flex gap-1">
-          {(['image', 'video'] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => { setActiveTab(tab); setActiveCategory(null) }}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === tab
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              {tab === 'image' ? <Image size={15} /> : <Film size={15} />}
-              {tab === 'image' ? '画像' : '動画'}
-              <span className="text-xs text-text-muted">
-                ({groups.filter(g => g.fileType === tab).length})
-              </span>
-            </button>
-          ))}
+      {/* ── Tabs (Removed) & Select All Toolbar ── */}
+      <div className="bg-bg-card border-b border-border px-4 py-2 flex items-center justify-between">
+        <div className="text-sm font-medium text-text-primary px-2">
+          検出リスト（類似度・ブレ・ノイズが高い順）
         </div>
 
-        {/* タブ単位の一括選択ボタン */}
-        <div className="flex items-center gap-2 py-1.5">
+        {/* 一括選択ボタン */}
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => selectAllInTab(activeTab)}
+            onClick={selectAllFiltered}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded-lg text-xs font-medium transition-colors"
           >
             <CheckSquare size={13} />
-            {activeTab === 'image' ? '画像' : '動画'}タブの削除候補を全選択
+            表示中の候補を全選択
           </button>
           <button
             onClick={clearSelection}
@@ -172,11 +157,11 @@ export default function ResultsScreen() {
                 すべて
               </span>
               <span className="text-xs bg-bg-dark px-1.5 py-0.5 rounded">
-                {groups.filter(g => g.fileType === activeTab).length}
+                {groups.length}
               </span>
             </button>
             {categories.map((cat) => {
-              const count = groups.filter(g => g.fileType === activeTab && g.category === cat).length
+              const count = groups.filter(g => g.category === cat).length
               return (
                 <button
                   key={cat}
@@ -290,7 +275,8 @@ function GroupCard({
       <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-bg-panel">
         <div className="flex items-center gap-2">
           <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-            isDuplicate ? 'bg-accent/20 text-accent' : 'bg-secondary/20 text-secondary'
+            isDuplicate ? 'bg-accent/20 text-accent' : 
+            group.category.includes('画像') ? 'bg-orange-500/20 text-orange-400' : 'bg-secondary/20 text-secondary'
           }`}>
             {group.similarity}%
           </span>

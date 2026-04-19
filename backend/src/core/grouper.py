@@ -167,6 +167,31 @@ def group_files(
                 for idx in cluster_indices:
                     grouped_ids.add(remaining[idx].id)
 
+    # ── Step 2.5: 不良画像（ブレ・ノイズ）単体グループ ────────────────
+    # 残りのファイル、または重複グループに入っていても保持されないファイル等を対象にしても良いですが、
+    # シンプルに「まだグループ化されていないファイルの中から」一定以上のブレ/ノイズを持つものを抽出します
+    remaining_bad = [f for f in scanned_files if f.id not in grouped_ids]
+    for f in remaining_bad:
+        score = 0
+        cat = ""
+        if f.blur_score >= 60:
+            score = f.blur_score
+            cat = f"ブレ画像 ({score}%)"
+        elif f.noise_score >= 60:
+            score = f.noise_score
+            cat = f"ノイズ画像 ({score}%)"
+            
+        if score > 0:
+            group_files_info = [make_file_info(f, False)]
+            groups.append(FileGroup(
+                group_id=str(uuid.uuid4()),
+                similarity=score, # similarity の代わりに score を格納し、UIでソートに使う
+                file_type=f.file_type,
+                category=cat,
+                files=group_files_info,
+            ))
+            grouped_ids.add(f.id)
+
     # ── Step 3: グループに入ったファイルだけサムネイル生成 ────────────
     # （全ファイルではなく対象ファイルのみ → 大幅な時間短縮）
     grouped_file_map = {f.id: f for f in scanned_files if f.id in grouped_ids}

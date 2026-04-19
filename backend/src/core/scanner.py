@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from .hasher import (
     get_file_type, sha256_hash,
     compute_image_hashes, compute_video_frame_hashes,
-    generate_thumbnail,
+    generate_thumbnail, compute_quality_scores
 )
 from ..db.cache import get_cached, store_cached
 
@@ -26,6 +26,8 @@ class ScannedFile:
     resolution: Optional[str]
     duration: Optional[float]
     thumbnail_b64: Optional[str]
+    blur_score: int = 0
+    noise_score: int = 0
     from_cache: bool = False
 
 
@@ -94,6 +96,8 @@ def scan_file_sync(filepath: str) -> Optional[ScannedFile]:
                 resolution=cached['resolution'],
                 duration=cached['duration'],
                 thumbnail_b64=cached['thumbnail_b64'],
+                blur_score=cached.get('blur_score', 0),
+                noise_score=cached.get('noise_score', 0),
                 from_cache=True,
             )
 
@@ -101,6 +105,7 @@ def scan_file_sync(filepath: str) -> Optional[ScannedFile]:
         file_hash = sha256_hash(filepath)
         resolution = None
         duration = None
+        blur, noise = compute_quality_scores(filepath, file_type)
 
         if file_type == 'image':
             phash, dhash = compute_image_hashes(filepath)
@@ -131,7 +136,7 @@ def scan_file_sync(filepath: str) -> Optional[ScannedFile]:
         thumbnail = None
 
         # Store in cache（サムネイルは別途キャッシュ済みのものを使用）
-        store_cached(filepath, size, mtime, file_hash, phash, dhash, resolution, duration, thumbnail)
+        store_cached(filepath, size, mtime, file_hash, phash, dhash, resolution, duration, thumbnail, blur, noise)
 
         return ScannedFile(
             id=str(uuid.uuid4()),
@@ -145,6 +150,8 @@ def scan_file_sync(filepath: str) -> Optional[ScannedFile]:
             resolution=resolution,
             duration=duration,
             thumbnail_b64=None,
+            blur_score=blur,
+            noise_score=noise,
             from_cache=False,
         )
     except Exception as e:
