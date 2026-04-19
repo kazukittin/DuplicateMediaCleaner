@@ -8,7 +8,8 @@
       "Bash(python -c \"from backend.src.main import create_app; print\\('Backend import OK'\\)\")",
       "Bash(npm run *)",
       "Bash(rm -rf E:/DuplicateMediaCleaner/frontend/dist-electron)",
-      "Bash(npx vite *)"
+      "Bash(npx vite *)",
+      "Bash(python -c \"from backend.src.core.grouper import group_files; print\\('OK'\\)\")"
     ]
   }
 }

@@ -157,6 +157,7 @@ async def _run_scan(sid: str, config: ScanConfig):
                 'currentFile': path,
                 'processed': i + 1,
                 'total': total,
+                'totalScanned': total,   # スキャン総数（分母として固定）
                 'speed': round(speed, 1),
                 'elapsedTime': round(elapsed, 1),
                 'phase': 'ファイルを分析中...',
@@ -165,19 +166,33 @@ async def _run_scan(sid: str, config: ScanConfig):
             }, to=sid)
             await asyncio.sleep(0)
 
-    # Grouping phase
-    await sio.emit('scan_progress', {
-        'currentFile': '',
-        'processed': total, 'total': total, 'speed': 0,
-        'elapsedTime': round(loop.time() - start_time, 1),
-        'phase': 'グループ化中...',
-        'cacheHits': cache_hits,
-        'cacheMisses': total - cache_hits,
-    }, to=sid)
+    # Grouping phase — コールバックでスレッドから進捗を送信
+    def make_group_progress_callback(event_loop):
+        def callback(phase: str, processed: int, group_total: int):
+            payload = {
+                'currentFile': '',
+                'processed': processed,
+                'total': group_total,
+                'totalScanned': total,   # グループ化中も総スキャン数は変わらない
+                'speed': 0,
+                'elapsedTime': round(event_loop.time() - start_time, 1),
+                'phase': phase,
+                'cacheHits': cache_hits,
+                'cacheMisses': total - cache_hits,
+            }
+            asyncio.run_coroutine_threadsafe(sio.emit('scan_progress', payload, to=sid), event_loop)
+        return callback
 
-    groups = await loop.run_in_executor(_executor, lambda: group_files(
-        scanned, config.detect_duplicates, config.detect_similar, config.similarity_threshold
-    ))
+    groups = await loop.run_in_executor(
+        _executor,
+        lambda: group_files(
+            scanned,
+            config.detect_duplicates,
+            config.detect_similar,
+            config.similarity_threshold,
+            on_progress=make_group_progress_callback(loop),
+        ),
+    )
 
     duplicate_groups = sum(1 for g in groups if g.similarity == 100)
     similar_groups = sum(1 for g in groups if g.similarity < 100)

@@ -1,6 +1,6 @@
 import uuid
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 from .scanner import ScannedFile
 from .hasher import phash_distance
 
@@ -12,6 +12,9 @@ class FileGroup:
     file_type: str
     category: str
     files: list
+
+
+ProgressCallback = Callable[[str, int, int], None]  # (phase, processed, total)
 
 
 def similarity_to_category(similarity: int) -> str:
@@ -29,31 +32,34 @@ def group_files(
     detect_duplicates: bool,
     detect_similar: bool,
     threshold: float,
+    on_progress: Optional[ProgressCallback] = None,
 ) -> list[FileGroup]:
     groups: list[FileGroup] = []
 
-    # Step 1: Exact duplicates by SHA-256
+    def report(phase: str, processed: int, total: int):
+        if on_progress:
+            on_progress(phase, processed, total)
+
+    # ── Step 1: 完全重複（SHA-256） ────────────────────────────────────
     if detect_duplicates:
         hash_map: dict[str, list[ScannedFile]] = {}
         for f in scanned_files:
             hash_map.setdefault(f.sha256, []).append(f)
 
-        for files_in_group in hash_map.values():
-            if len(files_in_group) < 2:
-                continue
+        dup_groups = [v for v in hash_map.values() if len(v) >= 2]
+        total_dup = len(dup_groups) or 1
+
+        for idx, files_in_group in enumerate(dup_groups):
             sorted_files = sorted(files_in_group, key=lambda x: (x.size, x.modified), reverse=True)
-            group_files_info = []
-            for i, f in enumerate(sorted_files):
-                group_files_info.append({
-                    'id': f.id,
-                    'path': f.path,
-                    'size': f.size,
-                    'modified': f.modified,
-                    'resolution': f.resolution,
-                    'duration': f.duration,
-                    'is_keep': i == 0,
+            group_files_info = [
+                {
+                    'id': f.id, 'path': f.path, 'size': f.size,
+                    'modified': f.modified, 'resolution': f.resolution,
+                    'duration': f.duration, 'is_keep': i == 0,
                     'thumbnail_base64': f.thumbnail_b64,
-                })
+                }
+                for i, f in enumerate(sorted_files)
+            ]
             groups.append(FileGroup(
                 group_id=str(uuid.uuid4()),
                 similarity=100,
@@ -61,56 +67,56 @@ def group_files(
                 category=similarity_to_category(100),
                 files=group_files_info,
             ))
+            if idx % 10 == 0 or idx == total_dup - 1:
+                report('完全重複を検出中...', idx + 1, total_dup)
 
-    # Step 2: Similar files by pHash
+    # ── Step 2: 類似ファイル（pHash） ─────────────────────────────────
     if detect_similar:
-        # Separate already-grouped file ids
         grouped_ids = {f['id'] for g in groups for f in g.files}
         remaining = [f for f in scanned_files if f.id not in grouped_ids and f.phash]
+        total_rem = len(remaining) or 1
 
-        # Cluster by pHash similarity
-        visited = set()
+        visited: set[str] = set()
         for i, fi in enumerate(remaining):
             if fi.id in visited:
                 continue
             cluster = [fi]
             visited.add(fi.id)
-            for j, fj in enumerate(remaining):
-                if i == j or fj.id in visited:
+
+            for fj in remaining:
+                if fj.id == fi.id or fj.id in visited:
                     continue
                 if fi.file_type != fj.file_type:
                     continue
-                if fi.phash and fj.phash:
-                    sim = phash_distance(fi.phash, fj.phash) * 100
-                    if sim >= threshold:
-                        cluster.append(fj)
-                        visited.add(fj.id)
+                if fi.phash and fj.phash and phash_distance(fi.phash, fj.phash) * 100 >= threshold:
+                    cluster.append(fj)
+                    visited.add(fj.id)
+
+            # 20件ごとに進捗を通知
+            if i % 20 == 0 or i == total_rem - 1:
+                report('類似ファイルを比較中...', i + 1, total_rem)
 
             if len(cluster) < 2:
                 continue
 
-            # Calculate avg similarity
-            sims = []
-            for a in range(len(cluster)):
-                for b in range(a + 1, len(cluster)):
-                    if cluster[a].phash and cluster[b].phash:
-                        sims.append(phash_distance(cluster[a].phash, cluster[b].phash) * 100)
-            avg_sim = int(sum(sims) / len(sims)) if sims else int(threshold)
-            avg_sim = min(99, avg_sim)  # 100% reserved for exact duplicates
+            sims = [
+                phash_distance(cluster[a].phash, cluster[b].phash) * 100
+                for a in range(len(cluster))
+                for b in range(a + 1, len(cluster))
+                if cluster[a].phash and cluster[b].phash
+            ]
+            avg_sim = min(99, int(sum(sims) / len(sims)) if sims else int(threshold))
 
             sorted_cluster = sorted(cluster, key=lambda x: (x.size, x.modified), reverse=True)
-            group_files_info = []
-            for i, f in enumerate(sorted_cluster):
-                group_files_info.append({
-                    'id': f.id,
-                    'path': f.path,
-                    'size': f.size,
-                    'modified': f.modified,
-                    'resolution': f.resolution,
-                    'duration': f.duration,
-                    'is_keep': i == 0,
+            group_files_info = [
+                {
+                    'id': f.id, 'path': f.path, 'size': f.size,
+                    'modified': f.modified, 'resolution': f.resolution,
+                    'duration': f.duration, 'is_keep': i2 == 0,
                     'thumbnail_base64': f.thumbnail_b64,
-                })
+                }
+                for i2, f in enumerate(sorted_cluster)
+            ]
             groups.append(FileGroup(
                 group_id=str(uuid.uuid4()),
                 similarity=avg_sim,

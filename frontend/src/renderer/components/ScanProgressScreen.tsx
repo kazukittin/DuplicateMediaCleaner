@@ -25,6 +25,7 @@ export default function ScanProgressScreen() {
     setScreen('home')
   }
 
+  const isGrouping = scanProgress?.phase?.includes('比較中') || scanProgress?.phase?.includes('検出中') || scanProgress?.phase?.includes('グループ')
   const percent =
     scanProgress && scanProgress.total > 0
       ? Math.round((scanProgress.processed / scanProgress.total) * 100)
@@ -67,7 +68,7 @@ export default function ScanProgressScreen() {
             </div>
             <div className="h-3 bg-bg-dark rounded-full overflow-hidden">
               <div
-                className="h-full bg-primary rounded-full transition-all duration-300"
+                className={`h-full rounded-full transition-all duration-300 ${isGrouping ? 'bg-secondary' : 'bg-primary'}`}
                 style={{ width: `${percent}%` }}
               />
             </div>
@@ -85,9 +86,11 @@ export default function ScanProgressScreen() {
                 </p>
               </div>
               <div>
-                <p className="text-text-muted text-xs uppercase">速度</p>
+                <p className="text-text-muted text-xs uppercase">{isGrouping ? 'グループ数' : '速度'}</p>
                 <p className="font-bold text-text-primary">
-                  {(scanProgress?.speed ?? 0).toFixed(1)} 件/秒
+                  {isGrouping
+                    ? `${percent}%`
+                    : `${(scanProgress?.speed ?? 0).toFixed(1)} 件/秒`}
                 </p>
               </div>
             </div>
@@ -100,7 +103,7 @@ export default function ScanProgressScreen() {
               <div className="flex items-center justify-center gap-1.5 text-xs text-success">
                 <Zap size={12} />
                 キャッシュヒット: {scanProgress!.cacheHits} 件
-                （{Math.round(scanProgress!.cacheHits / (scanProgress!.processed || 1) * 100)}%）
+                （{Math.round(scanProgress!.cacheHits / (scanProgress!.totalScanned || scanProgress!.cacheHits || 1) * 100)}%）
               </div>
             )}
           </div>

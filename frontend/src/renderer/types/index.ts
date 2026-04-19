@@ -22,6 +22,7 @@ export interface ScanProgress {
   phase: string
   cacheHits: number
   cacheMisses: number
+  totalScanned: number  // スキャン済みファイル総数（グループ化フェーズでも変わらない）
 }
 
 export interface ScanStatistics {
