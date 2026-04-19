@@ -69,7 +69,7 @@ def compute_video_frame_hashes(filepath: str) -> tuple[Optional[str], Optional[s
         return None, None
 
 
-def generate_thumbnail(filepath: str, file_type: str, max_size: int = 200) -> Optional[str]:
+def generate_thumbnail(filepath: str, file_type: str, max_size: int = 360) -> Optional[str]:
     try:
         if file_type == 'image':
             img = Image.open(filepath).convert('RGB')

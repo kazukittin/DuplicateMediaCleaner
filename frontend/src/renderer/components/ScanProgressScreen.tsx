@@ -1,4 +1,5 @@
-import { Loader2, X, HardDrive, Zap } from 'lucide-react'
+import { useState, useLayoutEffect } from 'react'
+import { Loader2, X, HardDrive, Zap, AlertTriangle } from 'lucide-react'
 import { useAppStore } from '../stores/appStore'
 import { useWebSocket } from '../hooks/useWebSocket'
 import type { ScanProgress, ScanResult } from '../types'
@@ -6,18 +7,33 @@ import { formatDuration } from '../utils/format'
 
 export default function ScanProgressScreen() {
   const { scanProgress, setScanProgress, setScanResult, setScreen, scanOptions } = useAppStore()
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
-  const { emit } = useWebSocket({
+  const { connect, emit } = useWebSocket({
     onScanProgress: (progress: ScanProgress) => setScanProgress(progress),
     onScanComplete: (result: ScanResult) => {
       setScanResult(result)
       setScreen('results')
     },
     onError: (msg: string) => {
-      console.error(msg)
-      setScreen('home')
+      console.error('[scan error]', msg)
+      setErrorMsg(msg)   // ホームに戻らず画面上にエラーを表示
     },
   })
+
+  // useLayoutEffect (not useEffect) so handlers are registered synchronously
+  // before the browser paints — eliminates the race window where HomeScreen's
+  // stale onError (setScreen('home')) could fire before we take ownership.
+  useLayoutEffect(() => {
+    const socket = connect()
+    return () => {
+      // Remove our handlers on unmount so they don't linger after screen change
+      socket?.off('scan_progress')
+      socket?.off('scan_complete')
+      socket?.off('error')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleCancel = () => {
     emit('scan_cancel', {})
@@ -108,12 +124,22 @@ export default function ScanProgressScreen() {
             )}
           </div>
 
+          {errorMsg && (
+            <div className="bg-red-500/10 border border-red-500/40 rounded-xl p-4 flex items-start gap-3">
+              <AlertTriangle size={18} className="text-red-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-red-400">エラーが発生しました</p>
+                <p className="text-xs text-red-300 mt-1 break-all">{errorMsg}</p>
+              </div>
+            </div>
+          )}
+
           <button
             onClick={handleCancel}
             className="w-full py-3 border border-border hover:border-accent hover:text-accent text-text-secondary rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
           >
             <X size={16} />
-            キャンセル
+            {errorMsg ? 'ホームに戻る' : 'キャンセル'}
           </button>
         </div>
       </div>

@@ -19,7 +19,9 @@ cancel_flags: dict[str, bool] = {}
 LOGS_DIR = Path(os.environ.get('APPDATA', '')) / 'DuplicateMediaCleaner' / 'logs'
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
-_executor = ThreadPoolExecutor(max_workers=max(2, os.cpu_count() or 4))
+_WORKERS = min(8, max(2, os.cpu_count() or 4))
+_scan_executor  = ThreadPoolExecutor(max_workers=_WORKERS)  # スキャン用
+_thread_executor = ThreadPoolExecutor(max_workers=2)        # グループ化・DB用
 
 
 @sio.event
@@ -48,6 +50,8 @@ async def scan_start(sid, data):
     try:
         await _run_scan(sid, config)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         await sio.emit('error', {'message': str(e)}, to=sid)
 
 
@@ -111,7 +115,7 @@ async def delete_files(sid, data):
 
 
 async def _run_scan(sid: str, config: ScanConfig):
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     start_time = loop.time()
 
     # Collect file list
@@ -122,7 +126,7 @@ async def _run_scan(sid: str, config: ScanConfig):
         'cacheHits': 0, 'cacheMisses': 0,
     }, to=sid)
 
-    file_paths = await loop.run_in_executor(_executor, lambda: collect_files(
+    file_paths = await loop.run_in_executor(_thread_executor, lambda: collect_files(
         config.folder_path, config.include_subfolders, config.file_types
     ))
     total = len(file_paths)
@@ -138,33 +142,42 @@ async def _run_scan(sid: str, config: ScanConfig):
 
     scanned = []
     cache_hits = 0
+    BATCH = 100  # asyncio.gather で同時に処理するファイル数
 
-    for i, path in enumerate(file_paths):
+    for batch_start in range(0, total, BATCH):
         if cancel_flags.get(sid):
             return
 
+        batch = file_paths[batch_start:batch_start + BATCH]
+
+        # asyncio ノンブロッキング並列実行（イベントループをブロックしない）
+        tasks = [loop.run_in_executor(_scan_executor, scan_file_sync, p) for p in batch]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for result in results:
+            if isinstance(result, Exception):
+                continue
+            if result:
+                scanned.append(result)
+                if result.from_cache:
+                    cache_hits += 1
+
+        processed = min(batch_start + BATCH, total)
         elapsed = loop.time() - start_time
-        speed = (i + 1) / elapsed if elapsed > 0 else 0
+        speed = processed / elapsed if elapsed > 0 else 0
 
-        result = await loop.run_in_executor(_executor, scan_file_sync, path)
-        if result:
-            scanned.append(result)
-            if result.from_cache:
-                cache_hits += 1
-
-        if i % 5 == 0:
-            await sio.emit('scan_progress', {
-                'currentFile': path,
-                'processed': i + 1,
-                'total': total,
-                'totalScanned': total,   # スキャン総数（分母として固定）
-                'speed': round(speed, 1),
-                'elapsedTime': round(elapsed, 1),
-                'phase': 'ファイルを分析中...',
-                'cacheHits': cache_hits,
-                'cacheMisses': (i + 1) - cache_hits,
-            }, to=sid)
-            await asyncio.sleep(0)
+        await sio.emit('scan_progress', {
+            'currentFile': batch[-1] if batch else '',
+            'processed': processed,
+            'total': total,
+            'totalScanned': total,
+            'speed': round(speed, 1),
+            'elapsedTime': round(elapsed, 1),
+            'phase': 'ファイルを分析中...',
+            'cacheHits': cache_hits,
+            'cacheMisses': processed - cache_hits,
+        }, to=sid)
+        await asyncio.sleep(0)
 
     # Grouping phase — コールバックでスレッドから進捗を送信
     def make_group_progress_callback(event_loop):
@@ -184,7 +197,7 @@ async def _run_scan(sid: str, config: ScanConfig):
         return callback
 
     groups = await loop.run_in_executor(
-        _executor,
+        _thread_executor,
         lambda: group_files(
             scanned,
             config.detect_duplicates,
@@ -196,8 +209,8 @@ async def _run_scan(sid: str, config: ScanConfig):
 
     duplicate_groups = sum(1 for g in groups if g.similarity == 100)
     similar_groups = sum(1 for g in groups if g.similarity < 100)
-    deletable_files = sum(len([f for f in g.files if not f['is_keep']]) for g in groups)
-    recoverable_space = sum(f['size'] for g in groups for f in g.files if not f['is_keep'])
+    deletable_files = sum(len([f for f in g.files if not f['isKeep']]) for g in groups)
+    recoverable_space = sum(f['size'] for g in groups for f in g.files if not f['isKeep'])
 
     scan_id = str(uuid.uuid4())
     scan_sessions[sid] = {'scan_id': scan_id, 'groups': groups}

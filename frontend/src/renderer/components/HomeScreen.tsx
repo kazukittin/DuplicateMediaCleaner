@@ -18,8 +18,10 @@ export default function HomeScreen() {
       setScreen('results')
     },
     onError: (msg: string) => {
+      // Do NOT call setScreen('home') here — this handler may fire as a stale
+      // closure while ScanProgressScreen is active, which would wrongly navigate away.
+      // ScanProgressScreen registers its own onError that shows the error in-place.
       setError(msg)
-      setScreen('home')
     },
   })
 

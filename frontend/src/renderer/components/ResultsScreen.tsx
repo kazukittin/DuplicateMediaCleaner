@@ -3,7 +3,6 @@ import {
   Image,
   Film,
   Trash2,
-  FolderOpen,
   ChevronRight,
   CheckSquare,
   Square,
@@ -11,10 +10,13 @@ import {
   HardDrive,
   RotateCcw,
   Zap,
+  Maximize2,
+  X,
+  Shield,
 } from 'lucide-react'
 import { useAppStore, getSelectedCount, getSelectedSize } from '../stores/appStore'
 import type { FileGroup, FileInfo } from '../types'
-import { formatBytes, formatDate, similarityLabel, similarityColor } from '../utils/format'
+import { formatBytes, formatDate } from '../utils/format'
 
 export default function ResultsScreen() {
   const {
@@ -31,7 +33,7 @@ export default function ResultsScreen() {
     reset,
   } = useAppStore()
 
-  const [previewFile, setPreviewFile] = useState<FileInfo | null>(null)
+  const [compareGroup, setCompareGroup] = useState<FileGroup | null>(null)
 
   if (!scanResult) return null
 
@@ -48,13 +50,16 @@ export default function ResultsScreen() {
   const selectedCount = getSelectedCount(useAppStore.getState())
   const selectedSize = getSelectedSize(useAppStore.getState())
 
-  const handleSelectAllInCategory = () => {
-    filteredGroups.forEach((g) => selectAllInGroup(g))
+  // タブ内の保持以外のファイルを全選択
+  const selectAllInTab = (tab: 'image' | 'video') => {
+    groups
+      .filter((g) => g.fileType === tab)
+      .forEach((g) => selectAllInGroup(g))
   }
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
+      {/* ── Header ── */}
       <div className="bg-bg-card border-b border-border px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
@@ -63,12 +68,11 @@ export default function ResultsScreen() {
           <div>
             <h1 className="text-base font-bold text-primary">スキャン結果</h1>
             <p className="text-xs text-text-secondary">
-              重複グループ: {statistics.duplicateGroups} / 類似グループ: {statistics.similarGroups}
+              重複: {statistics.duplicateGroups} / 類似: {statistics.similarGroups} グループ
             </p>
           </div>
         </div>
 
-        {/* Stats */}
         <div className="flex gap-6 text-center">
           <div>
             <p className="text-xs text-text-muted">削除対象</p>
@@ -92,7 +96,7 @@ export default function ResultsScreen() {
 
         <div className="flex gap-2">
           <button
-            onClick={() => { reset() }}
+            onClick={() => reset()}
             className="px-3 py-2 border border-border hover:border-primary text-text-secondary hover:text-primary rounded-lg text-sm transition-colors flex items-center gap-1"
           >
             <RotateCcw size={14} />
@@ -109,40 +113,70 @@ export default function ResultsScreen() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="bg-bg-card border-b border-border px-6 flex gap-1">
-        {(['image', 'video'] as const).map((tab) => (
+      {/* ── Tabs ── */}
+      <div className="bg-bg-card border-b border-border px-4 flex items-stretch justify-between">
+        {/* タブ切り替え */}
+        <div className="flex gap-1">
+          {(['image', 'video'] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => { setActiveTab(tab); setActiveCategory(null) }}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === tab
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-text-secondary hover:text-text-primary'
+              }`}
+            >
+              {tab === 'image' ? <Image size={15} /> : <Film size={15} />}
+              {tab === 'image' ? '画像' : '動画'}
+              <span className="text-xs text-text-muted">
+                ({groups.filter(g => g.fileType === tab).length})
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* タブ単位の一括選択ボタン */}
+        <div className="flex items-center gap-2 py-1.5">
           <button
-            key={tab}
-            onClick={() => { setActiveTab(tab); setActiveCategory(null) }}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === tab
-                ? 'border-primary text-primary'
-                : 'border-transparent text-text-secondary hover:text-text-primary'
-            }`}
+            onClick={() => selectAllInTab(activeTab)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded-lg text-xs font-medium transition-colors"
           >
-            {tab === 'image' ? <Image size={15} /> : <Film size={15} />}
-            {tab === 'image' ? '画像' : '動画'}
+            <CheckSquare size={13} />
+            {activeTab === 'image' ? '画像' : '動画'}タブの削除候補を全選択
           </button>
-        ))}
+          <button
+            onClick={clearSelection}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-text-muted hover:text-text-secondary border border-border hover:border-text-muted rounded-lg text-xs transition-colors"
+          >
+            <Square size={13} />
+            選択解除
+          </button>
+        </div>
       </div>
 
-      {/* Three-pane layout */}
+      {/* ── Body: sidebar + main ── */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: Category tree */}
-        <div className="w-48 border-r border-border bg-bg-card overflow-y-auto flex-shrink-0">
-          <div className="p-2 space-y-1">
+
+        {/* Left: category sidebar */}
+        <div className="w-52 border-r border-border bg-bg-card overflow-y-auto flex-shrink-0">
+          <div className="p-2 space-y-0.5">
             <button
               onClick={() => setActiveCategory(null)}
-              className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center gap-2 ${
+              className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center justify-between ${
                 !activeCategory ? 'bg-primary/20 text-primary' : 'text-text-secondary hover:bg-bg-panel'
               }`}
             >
-              <ChevronRight size={14} />
-              すべて ({groups.filter((g) => g.fileType === activeTab).length})
+              <span className="flex items-center gap-1.5">
+                <ChevronRight size={13} />
+                すべて
+              </span>
+              <span className="text-xs bg-bg-dark px-1.5 py-0.5 rounded">
+                {groups.filter(g => g.fileType === activeTab).length}
+              </span>
             </button>
             {categories.map((cat) => {
-              const count = groups.filter((g) => g.fileType === activeTab && g.category === cat).length
+              const count = groups.filter(g => g.fileType === activeTab && g.category === cat).length
               return (
                 <button
                   key={cat}
@@ -153,63 +187,56 @@ export default function ResultsScreen() {
                       : 'text-text-secondary hover:bg-bg-panel'
                   }`}
                 >
-                  <span className="truncate">{cat}</span>
-                  <span className="text-xs bg-bg-dark px-1.5 py-0.5 rounded">{count}</span>
+                  <span className="truncate text-xs">{cat}</span>
+                  <span className="text-xs bg-bg-dark px-1.5 py-0.5 rounded flex-shrink-0 ml-1">{count}</span>
                 </button>
               )
             })}
           </div>
         </div>
 
-        {/* Center: File list */}
+        {/* Main: group cards */}
         <div className="flex-1 overflow-y-auto bg-bg-dark">
-          <div className="p-2">
-            <div className="flex items-center justify-between px-2 py-1.5 mb-1">
-              <p className="text-xs text-text-muted">{filteredGroups.length} グループ</p>
-              <div className="flex gap-2">
+          <div className="p-3 space-y-3">
+            {/* Toolbar */}
+            <div className="flex items-center justify-between px-1">
+              <p className="text-xs text-text-muted">
+                {activeCategory
+                  ? `「${activeCategory}」- ${filteredGroups.length} グループ`
+                  : `${filteredGroups.length} グループ`}
+              </p>
+              {activeCategory && (
                 <button
-                  onClick={handleSelectAllInCategory}
+                  onClick={() => filteredGroups.forEach(g => selectAllInGroup(g))}
                   className="text-xs text-primary hover:underline flex items-center gap-1"
                 >
                   <CheckSquare size={12} />
-                  カテゴリ全選択
+                  このカテゴリを全選択
                 </button>
-                <button
-                  onClick={clearSelection}
-                  className="text-xs text-text-muted hover:underline"
-                >
-                  選択解除
-                </button>
-              </div>
+              )}
             </div>
 
-            {filteredGroups.map((group) => (
-              <GroupCard
-                key={group.groupId}
-                group={group}
-                selectedFileIds={selectedFileIds}
-                onToggle={toggleFileSelection}
-                onSelectAll={() => selectAllInGroup(group)}
-                onPreview={setPreviewFile}
-                activePreviewId={previewFile?.id}
-              />
-            ))}
-
-            {filteredGroups.length === 0 && (
-              <div className="text-center text-text-muted py-16 text-sm">
+            {filteredGroups.length === 0 ? (
+              <div className="text-center text-text-muted py-20 text-sm">
                 該当するファイルがありません
               </div>
+            ) : (
+              filteredGroups.map((group) => (
+                <GroupCard
+                  key={group.groupId}
+                  group={group}
+                  selectedFileIds={selectedFileIds}
+                  onToggle={toggleFileSelection}
+                  onSelectAll={() => selectAllInGroup(group)}
+                  onCompare={() => setCompareGroup(group)}
+                />
+              ))
             )}
           </div>
         </div>
-
-        {/* Right: Preview */}
-        <div className="w-64 border-l border-border bg-bg-card overflow-y-auto flex-shrink-0">
-          <PreviewPane file={previewFile} />
-        </div>
       </div>
 
-      {/* Footer */}
+      {/* ── Footer ── */}
       {selectedCount > 0 && (
         <div className="bg-bg-card border-t border-border px-6 py-2 flex items-center justify-between text-sm">
           <span className="text-text-secondary">
@@ -224,49 +251,78 @@ export default function ResultsScreen() {
           </button>
         </div>
       )}
+
+      {/* ── Comparison modal ── */}
+      {compareGroup && (
+        <CompareModal
+          group={compareGroup}
+          selectedFileIds={selectedFileIds}
+          onToggle={toggleFileSelection}
+          onClose={() => setCompareGroup(null)}
+        />
+      )}
     </div>
   )
 }
+
+// ─────────────────────────────────────────────
+// GroupCard — horizontal image comparison strip
+// ─────────────────────────────────────────────
 
 function GroupCard({
   group,
   selectedFileIds,
   onToggle,
   onSelectAll,
-  onPreview,
-  activePreviewId,
+  onCompare,
 }: {
   group: FileGroup
   selectedFileIds: Set<string>
   onToggle: (id: string) => void
   onSelectAll: () => void
-  onPreview: (file: FileInfo) => void
-  activePreviewId: string | undefined
+  onCompare: () => void
 }) {
+  const isDuplicate = group.similarity === 100
+
   return (
-    <div className="bg-bg-card border border-border rounded-lg mb-2 overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-bg-panel">
+    <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
+      {/* Card header */}
+      <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-bg-panel">
         <div className="flex items-center gap-2">
-          <span className={`text-xs font-bold ${similarityColor(group.similarity)}`}>
-            {group.similarity}% {similarityLabel(group.similarity)}
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+            isDuplicate ? 'bg-accent/20 text-accent' : 'bg-secondary/20 text-secondary'
+          }`}>
+            {group.similarity}%
           </span>
+          <span className="text-xs text-text-secondary">{group.category}</span>
+          <span className="text-xs text-text-muted">· {group.files.length} ファイル</span>
         </div>
-        <button
-          onClick={onSelectAll}
-          className="text-xs text-primary hover:underline"
-        >
-          削除候補を全選択
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onCompare}
+            className="flex items-center gap-1 text-xs text-text-secondary hover:text-primary border border-border hover:border-primary px-2.5 py-1 rounded-lg transition-colors"
+          >
+            <Maximize2 size={11} />
+            拡大比較
+          </button>
+          <button
+            onClick={onSelectAll}
+            className="text-xs text-accent hover:underline font-medium"
+          >
+            削除候補を全選択
+          </button>
+        </div>
       </div>
-      <div className="divide-y divide-border">
-        {group.files.map((file) => (
-          <FileRow
+
+      {/* Image strip */}
+      <div className="flex overflow-x-auto">
+        {group.files.map((file, idx) => (
+          <ImageCell
             key={file.id}
             file={file}
             selected={selectedFileIds.has(file.id)}
-            isActive={file.id === activePreviewId}
             onToggle={() => onToggle(file.id)}
-            onPreview={() => onPreview(file)}
+            showDivider={idx < group.files.length - 1}
           />
         ))}
       </div>
@@ -274,146 +330,295 @@ function GroupCard({
   )
 }
 
-function FileRow({
+// ─────────────────────────────────────────────
+// ImageCell — one file inside a group card
+// ─────────────────────────────────────────────
+
+function ImageCell({
   file,
   selected,
-  isActive,
   onToggle,
-  onPreview,
+  showDivider,
 }: {
   file: FileInfo
   selected: boolean
-  isActive: boolean
   onToggle: () => void
-  onPreview: () => void
+  showDivider: boolean
+}) {
+  const name = file.path.split(/[\\/]/).pop() ?? file.path
+
+  return (
+    <div className={`flex-shrink-0 w-52 flex flex-col ${showDivider ? 'border-r border-border' : ''}`}>
+      {/* Thumbnail area */}
+      <div className="relative bg-bg-dark overflow-hidden" style={{ height: '168px' }}>
+        {file.thumbnailBase64 ? (
+          <img
+            src={`data:image/jpeg;base64,${file.thumbnailBase64}`}
+            alt={name}
+            className="w-full h-full object-contain"
+          />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-text-muted">
+            <Film size={36} className="opacity-30" />
+            <span className="text-xs opacity-50">プレビューなし</span>
+          </div>
+        )}
+
+        {/* Keep badge */}
+        {file.isKeep && (
+          <div className="absolute top-2 left-2 flex items-center gap-1 bg-success text-white text-xs px-1.5 py-0.5 rounded-full font-semibold shadow">
+            <Shield size={9} />
+            保持
+          </div>
+        )}
+
+        {/* Selection highlight border */}
+        {!file.isKeep && selected && (
+          <div className="absolute inset-0 border-2 border-primary pointer-events-none" />
+        )}
+      </div>
+
+      {/* Info section */}
+      <div className="p-2.5 flex flex-col gap-2 flex-1">
+        <p className="text-xs font-medium text-text-primary truncate leading-tight" title={name}>
+          {name}
+        </p>
+        <div className="text-xs text-text-muted space-y-0.5 leading-tight">
+          <p>{formatBytes(file.size)}</p>
+          {file.resolution && <p>{file.resolution}</p>}
+          {file.duration != null && <p>{file.duration.toFixed(1)} 秒</p>}
+          <p className="text-text-muted/60 truncate" title={file.path}>{file.path}</p>
+        </div>
+
+        <div className="flex items-center gap-1.5 mt-auto">
+          {file.isKeep ? (
+            <span className="flex-1 text-center text-xs text-success">削除対象外</span>
+          ) : (
+            <button
+              onClick={onToggle}
+              className={`flex-1 flex items-center justify-center gap-1 text-xs py-1 rounded transition-colors ${
+                selected
+                  ? 'bg-primary/20 text-primary border border-primary/50'
+                  : 'bg-bg-dark text-text-muted border border-border hover:border-primary hover:text-primary'
+              }`}
+            >
+              {selected ? <CheckSquare size={12} /> : <Square size={12} />}
+              {selected ? '選択中' : '削除対象へ'}
+            </button>
+          )}
+          <button
+            onClick={() => window.electronAPI?.openFileLocation(file.path)}
+            className="p-1 text-text-muted hover:text-text-primary transition-colors flex-shrink-0"
+            title="ファイルの場所を開く"
+          >
+            <ExternalLink size={13} />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────
+// CompareModal — full-screen side-by-side view
+// ─────────────────────────────────────────────
+
+function CompareModal({
+  group,
+  selectedFileIds,
+  onToggle,
+  onClose,
+}: {
+  group: FileGroup
+  selectedFileIds: Set<string>
+  onToggle: (id: string) => void
+  onClose: () => void
+}) {
+  const [zoomedFile, setZoomedFile] = useState<FileInfo | null>(null)
+
+  return (
+    <div className="fixed inset-0 bg-black/80 z-50 flex flex-col">
+      {/* Modal header */}
+      <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-bg-card flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <span className={`text-sm font-bold px-2.5 py-0.5 rounded-full ${
+            group.similarity === 100 ? 'bg-accent/20 text-accent' : 'bg-secondary/20 text-secondary'
+          }`}>
+            {group.similarity}%
+          </span>
+          <span className="text-sm text-text-primary font-medium">{group.category}</span>
+          <span className="text-xs text-text-muted">· {group.files.length} ファイル</span>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-2 hover:bg-bg-panel rounded-lg text-text-secondary hover:text-text-primary transition-colors"
+        >
+          <X size={20} />
+        </button>
+      </div>
+
+      {/* Scrollable image comparison area */}
+      <div className="flex-1 overflow-auto p-6">
+        <div className="flex gap-4 justify-center flex-wrap">
+          {group.files.map((file) => (
+            <CompareCard
+              key={file.id}
+              file={file}
+              selected={selectedFileIds.has(file.id)}
+              onToggle={() => onToggle(file.id)}
+              onZoom={() => setZoomedFile(file)}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Zoomed image overlay */}
+      {zoomedFile && (
+        <div
+          className="absolute inset-0 bg-black/95 z-10 flex items-center justify-center cursor-zoom-out"
+          onClick={() => setZoomedFile(null)}
+        >
+          {zoomedFile.thumbnailBase64 ? (
+            <img
+              src={`data:image/jpeg;base64,${zoomedFile.thumbnailBase64}`}
+              alt=""
+              className="object-contain select-none"
+              style={{ maxWidth: '92vw', maxHeight: '88vh' }}
+            />
+          ) : (
+            <div className="text-text-muted text-sm">プレビューなし</div>
+          )}
+          <button
+            className="absolute top-4 right-4 p-2 bg-bg-card/80 rounded-lg text-text-secondary hover:text-white"
+            onClick={() => setZoomedFile(null)}
+          >
+            <X size={20} />
+          </button>
+          <p className="absolute bottom-4 text-xs text-white/40">
+            クリックで閉じる
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────
+// CompareCard — one file card inside the modal
+// ─────────────────────────────────────────────
+
+function CompareCard({
+  file,
+  selected,
+  onToggle,
+  onZoom,
+}: {
+  file: FileInfo
+  selected: boolean
+  onToggle: () => void
+  onZoom: () => void
 }) {
   const name = file.path.split(/[\\/]/).pop() ?? file.path
 
   return (
     <div
-      className={`flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors ${
-        isActive ? 'bg-primary/10' : 'hover:bg-bg-panel'
-      } ${file.isKeep ? 'opacity-60' : ''}`}
-      onClick={onPreview}
+      className={`flex flex-col rounded-xl overflow-hidden border-2 transition-colors bg-bg-card ${
+        file.isKeep
+          ? 'border-success/60'
+          : selected
+            ? 'border-primary'
+            : 'border-border'
+      }`}
+      style={{ width: '300px' }}
     >
-      <div onClick={(e) => { e.stopPropagation(); if (!file.isKeep) onToggle() }}>
-        {file.isKeep ? (
-          <Square size={16} className="text-text-muted" />
-        ) : selected ? (
-          <CheckSquare size={16} className="text-primary" />
-        ) : (
-          <Square size={16} className="text-text-muted" />
-        )}
-      </div>
-
-      {file.thumbnailBase64 ? (
-        <img
-          src={`data:image/jpeg;base64,${file.thumbnailBase64}`}
-          alt={name}
-          className="w-10 h-10 object-cover rounded border border-border flex-shrink-0"
-        />
-      ) : (
-        <div className="w-10 h-10 bg-bg-dark rounded border border-border flex-shrink-0 flex items-center justify-center">
-          <Film size={16} className="text-text-muted" />
-        </div>
-      )}
-
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium text-text-primary truncate" title={name}>{name}</p>
-        <p className="text-xs text-text-muted">
-          {formatBytes(file.size)} · {formatDate(file.modified)}
-        </p>
-      </div>
-
-      {file.isKeep && (
-        <span className="text-xs bg-success/20 text-success px-1.5 py-0.5 rounded flex-shrink-0">
-          保持
-        </span>
-      )}
-
-      <button
-        onClick={(e) => {
-          e.stopPropagation()
-          window.electronAPI?.openFileLocation(file.path)
-        }}
-        className="p-1 text-text-muted hover:text-text-primary transition-colors flex-shrink-0"
-        title="ファイルの場所を開く"
+      {/* Image */}
+      <div
+        className="relative bg-bg-dark cursor-zoom-in group"
+        style={{ height: '240px' }}
+        onClick={onZoom}
       >
-        <ExternalLink size={13} />
-      </button>
-    </div>
-  )
-}
-
-function PreviewPane({ file }: { file: FileInfo | null }) {
-  if (!file) {
-    return (
-      <div className="h-full flex items-center justify-center text-text-muted text-sm">
-        <div className="text-center space-y-2">
-          <FolderOpen size={32} className="mx-auto opacity-30" />
-          <p>ファイルを選択すると<br />プレビューが表示されます</p>
-        </div>
-      </div>
-    )
-  }
-
-  const name = file.path.split(/[\\/]/).pop() ?? file.path
-
-  return (
-    <div className="p-4 space-y-4">
-      <h3 className="text-sm font-semibold text-text-primary">プレビュー</h3>
-
-      {file.thumbnailBase64 ? (
-        <img
-          src={`data:image/jpeg;base64,${file.thumbnailBase64}`}
-          alt={name}
-          className="w-full rounded-lg border border-border object-contain bg-bg-dark"
-          style={{ maxHeight: 180 }}
-        />
-      ) : (
-        <div className="w-full h-32 bg-bg-dark rounded-lg border border-border flex items-center justify-center">
-          <Film size={32} className="text-text-muted" />
-        </div>
-      )}
-
-      <div className="space-y-2 text-xs">
-        <InfoRow label="ファイル名" value={name} mono />
-        <InfoRow label="サイズ" value={formatBytes(file.size)} />
-        <InfoRow label="更新日時" value={formatDate(file.modified)} />
-        {file.resolution && <InfoRow label="解像度" value={file.resolution} />}
-        <InfoRow label="場所" value={file.path} mono truncate title={file.path} />
-        {file.isKeep && (
-          <div className="bg-success/10 border border-success/30 rounded-lg p-2 text-success text-center">
-            保持ファイル（削除対象外）
+        {file.thumbnailBase64 ? (
+          <img
+            src={`data:image/jpeg;base64,${file.thumbnailBase64}`}
+            alt={name}
+            className="w-full h-full object-contain"
+          />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-text-muted">
+            <Film size={48} className="opacity-30" />
+            <span className="text-xs opacity-50">プレビューなし</span>
           </div>
         )}
-      </div>
-    </div>
-  )
-}
 
-function InfoRow({
-  label,
-  value,
-  mono,
-  truncate: trunc,
-  title,
-}: {
-  label: string
-  value: string
-  mono?: boolean
-  truncate?: boolean
-  title?: string
-}) {
-  return (
-    <div>
-      <p className="text-text-muted mb-0.5">{label}</p>
-      <p
-        className={`text-text-secondary break-all ${mono ? 'font-mono text-xs' : ''} ${trunc ? 'truncate' : ''}`}
-        title={title}
-      >
-        {value}
-      </p>
+        {/* Keep badge */}
+        {file.isKeep && (
+          <div className="absolute top-2 left-2 flex items-center gap-1 bg-success text-white text-xs px-2 py-0.5 rounded-full font-semibold shadow">
+            <Shield size={10} />
+            保持
+          </div>
+        )}
+
+        {/* Zoom hint */}
+        <div className="absolute top-2 right-2 p-1.5 bg-black/40 rounded-lg text-white/50 group-hover:text-white/90 transition-colors">
+          <Maximize2 size={14} />
+        </div>
+      </div>
+
+      {/* File info */}
+      <div className="p-4 space-y-3">
+        <p className="text-sm font-semibold text-text-primary truncate" title={name}>{name}</p>
+
+        <div className="text-xs text-text-muted space-y-1">
+          <div className="flex justify-between">
+            <span>サイズ</span>
+            <span className="text-text-secondary font-medium">{formatBytes(file.size)}</span>
+          </div>
+          {file.resolution && (
+            <div className="flex justify-between">
+              <span>解像度</span>
+              <span className="text-text-secondary font-medium">{file.resolution}</span>
+            </div>
+          )}
+          {file.duration != null && (
+            <div className="flex justify-between">
+              <span>長さ</span>
+              <span className="text-text-secondary font-medium">{file.duration.toFixed(1)} 秒</span>
+            </div>
+          )}
+          <div className="flex justify-between">
+            <span>更新日時</span>
+            <span className="text-text-secondary">{formatDate(file.modified)}</span>
+          </div>
+          <p className="text-text-muted/60 truncate pt-0.5" title={file.path}>{file.path}</p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {file.isKeep ? (
+            <span className="flex-1 text-center text-xs text-success border border-success/30 bg-success/10 rounded-lg py-2 font-medium">
+              保持（削除対象外）
+            </span>
+          ) : (
+            <button
+              onClick={onToggle}
+              className={`flex-1 flex items-center justify-center gap-1.5 text-sm rounded-lg py-2 font-medium transition-colors ${
+                selected
+                  ? 'bg-primary text-white'
+                  : 'bg-bg-dark text-text-secondary border border-border hover:border-primary hover:text-primary'
+              }`}
+            >
+              {selected ? <CheckSquare size={14} /> : <Square size={14} />}
+              {selected ? '削除対象に選択中' : '削除対象に追加'}
+            </button>
+          )}
+          <button
+            onClick={() => window.electronAPI?.openFileLocation(file.path)}
+            className="p-2 text-text-muted hover:text-text-primary border border-border rounded-lg transition-colors flex-shrink-0"
+            title="ファイルの場所を開く"
+          >
+            <ExternalLink size={15} />
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

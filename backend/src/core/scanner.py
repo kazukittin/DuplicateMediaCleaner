@@ -127,9 +127,10 @@ def scan_file_sync(filepath: str) -> Optional[ScannedFile]:
             except Exception:
                 pass
 
-        thumbnail = generate_thumbnail(filepath, file_type)
+        # サムネイルはグループ化後に必要なファイルだけ生成する（全件生成は重すぎる）
+        thumbnail = None
 
-        # Store in cache
+        # Store in cache（サムネイルは別途キャッシュ済みのものを使用）
         store_cached(filepath, size, mtime, file_hash, phash, dhash, resolution, duration, thumbnail)
 
         return ScannedFile(
@@ -143,7 +144,7 @@ def scan_file_sync(filepath: str) -> Optional[ScannedFile]:
             dhash=dhash,
             resolution=resolution,
             duration=duration,
-            thumbnail_b64=thumbnail,
+            thumbnail_b64=None,
             from_cache=False,
         )
     except Exception as e:

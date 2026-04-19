@@ -6,7 +6,11 @@ import os
 DB_PATH = os.path.join(os.path.expandvars('%APPDATA%'), 'DuplicateMediaCleaner', 'cache.db')
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
-engine = create_engine(f'sqlite:///{DB_PATH}', echo=False)
+engine = create_engine(
+    f'sqlite:///{DB_PATH}',
+    echo=False,
+    connect_args={"check_same_thread": False},
+)
 
 
 class Base(DeclarativeBase):

@@ -34,7 +34,7 @@ export function useWebSocket(handlers: WSHandlers = {}) {
     if (handlers.onDeleteComplete) socket.on('delete_complete', handlers.onDeleteComplete)
     if (handlers.onError) socket.on('error', (d: { message: string }) => handlers.onError!(d.message))
 
-    return socket
+    return socket  // caller can use this reference for cleanup
   }, [backendPort, handlers.onScanProgress, handlers.onScanComplete, handlers.onDeleteProgress, handlers.onDeleteComplete, handlers.onError])
 
   const disconnect = useCallback(() => {
