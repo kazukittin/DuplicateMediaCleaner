@@ -73,7 +73,12 @@ def compute_video_frame_hashes(filepath: str) -> tuple[Optional[str], Optional[s
 def generate_thumbnail(filepath: str, file_type: str, max_size: int = 360) -> Optional[str]:
     try:
         if file_type == 'image':
-            img = Image.open(filepath).convert('RGB')
+            # サムネイル生成でも日本語パスに対応するため np.fromfile を使用
+            nparr = np.fromfile(filepath, np.uint8)
+            cv_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if cv_img is None:
+                return None
+            img = Image.fromarray(cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB))
         else:
             cap = cv2.VideoCapture(filepath)
             ret, frame = cap.read()
@@ -104,7 +109,9 @@ def compute_quality_scores(filepath: str, file_type: str) -> tuple[int, int]:
     """Returns (blur_score, noise_score) from 0 to 100, where higher is worse (more blurry/noisy)."""
     try:
         if file_type == 'image':
-            img = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)
+            # 日本語パス対応のために np.fromfile と cv2.imdecode を使用
+            nparr = np.fromfile(filepath, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
         else:
             cap = cv2.VideoCapture(filepath)
             # 映像の真ん中あたりのフレームを取得
@@ -127,8 +134,10 @@ def compute_quality_scores(filepath: str, file_type: str) -> tuple[int, int]:
         blurred = cv2.medianBlur(img, 3)
         diff = cv2.absdiff(img, blurred)
         noise_mean = float(np.mean(diff))
-        # mean diff is usually 1-3 for clean images, 10+ for very noisy images.
-        noise_score = int(max(0, min(100, (noise_mean - 2.0) * 10.0)))
+        # mean diff for clean/smooth is 1-3, detailed textures (grass) can be 10-20.
+        # true high frequency noise will have high mean diff even in non-detailed regions.
+        # We make it less sensitive so it only hits extremely noisy images.
+        noise_score = int(max(0, min(100, (noise_mean - 8.0) * 5.0)))
         
         return blur_score, noise_score
     except Exception:

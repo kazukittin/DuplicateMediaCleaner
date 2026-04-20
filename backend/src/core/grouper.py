@@ -4,7 +4,7 @@ from typing import Callable, Optional
 import numpy as np
 
 from .scanner import ScannedFile
-from .hasher import phash_distance, generate_thumbnail
+from .hasher import phash_distance
 
 
 @dataclass
@@ -174,10 +174,10 @@ def group_files(
     for f in remaining_bad:
         score = 0
         cat = ""
-        if f.blur_score >= 60:
+        if f.blur_score >= 80:
             score = f.blur_score
             cat = f"ブレ画像 ({score}%)"
-        elif f.noise_score >= 60:
+        elif f.noise_score >= 80:
             score = f.noise_score
             cat = f"ノイズ画像 ({score}%)"
             
@@ -192,23 +192,7 @@ def group_files(
             ))
             grouped_ids.add(f.id)
 
-    # ── Step 3: グループに入ったファイルだけサムネイル生成 ────────────
-    # （全ファイルではなく対象ファイルのみ → 大幅な時間短縮）
-    grouped_file_map = {f.id: f for f in scanned_files if f.id in grouped_ids}
-    n_thumb = sum(len(g.files) for g in groups)
-    thumb_done = 0
-
-    for g in groups:
-        for file_info in g.files:
-            sf = grouped_file_map.get(file_info['id'])
-            if sf:
-                # キャッシュ済みサムネイルがあればそれを使用
-                if sf.thumbnail_b64:
-                    file_info['thumbnailBase64'] = sf.thumbnail_b64
-                else:
-                    file_info['thumbnailBase64'] = generate_thumbnail(sf.path, sf.file_type)
-            thumb_done += 1
-            if thumb_done % 20 == 0 or thumb_done == n_thumb:
-                report('サムネイルを生成中...', thumb_done, n_thumb or 1)
-
+    # サムネイルはバックエンドの websocket_handler が scan_complete 送信後に
+    # バックグラウンドで生成し thumbnail_batch イベントで逐次送信する。
+    # grouper はサムネイルを生成しない（thumbnailBase64 = null のまま返す）。
     return groups

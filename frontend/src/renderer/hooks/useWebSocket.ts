@@ -8,6 +8,7 @@ interface WSHandlers {
   onScanComplete?: (result: ScanResult) => void
   onDeleteProgress?: (progress: { processed: number; total: number }) => void
   onDeleteComplete?: (result: DeleteResult) => void
+  onThumbnailBatch?: (batch: Record<string, string>) => void
   onError?: (message: string) => void
 }
 
@@ -26,16 +27,18 @@ export function useWebSocket(handlers: WSHandlers = {}) {
     socket.off('scan_complete')
     socket.off('delete_progress')
     socket.off('delete_complete')
+    socket.off('thumbnail_batch')
     socket.off('error')
 
     if (handlers.onScanProgress) socket.on('scan_progress', handlers.onScanProgress)
     if (handlers.onScanComplete) socket.on('scan_complete', handlers.onScanComplete)
     if (handlers.onDeleteProgress) socket.on('delete_progress', handlers.onDeleteProgress)
     if (handlers.onDeleteComplete) socket.on('delete_complete', handlers.onDeleteComplete)
+    if (handlers.onThumbnailBatch) socket.on('thumbnail_batch', (d: { thumbnails: Record<string, string> }) => handlers.onThumbnailBatch!(d.thumbnails))
     if (handlers.onError) socket.on('error', (d: { message: string }) => handlers.onError!(d.message))
 
     return socket  // caller can use this reference for cleanup
-  }, [backendPort, handlers.onScanProgress, handlers.onScanComplete, handlers.onDeleteProgress, handlers.onDeleteComplete, handlers.onError])
+  }, [backendPort, handlers.onScanProgress, handlers.onScanComplete, handlers.onDeleteProgress, handlers.onDeleteComplete, handlers.onThumbnailBatch, handlers.onError])
 
   const disconnect = useCallback(() => {
     disconnectSocket()

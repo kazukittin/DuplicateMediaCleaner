@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useLayoutEffect } from 'react'
 import {
   Image,
   Film,
@@ -15,6 +15,7 @@ import {
   Shield,
 } from 'lucide-react'
 import { useAppStore, getSelectedCount, getSelectedSize } from '../stores/appStore'
+import { useWebSocket } from '../hooks/useWebSocket'
 import type { FileGroup, FileInfo } from '../types'
 import { formatBytes, formatDate } from '../utils/format'
 
@@ -23,40 +24,44 @@ export default function ResultsScreen() {
     scanResult,
     activeCategory,
     selectedFileIds,
+    thumbnails,
     setActiveCategory,
     toggleFileSelection,
     selectAllInGroup,
     clearSelection,
     setScreen,
     reset,
+    updateThumbnails,
   } = useAppStore()
 
   const [compareGroup, setCompareGroup] = useState<FileGroup | null>(null)
+  const [viewMode, setViewMode] = useState<'duplicates' | 'bad_quality'>('duplicates')
+
+  // バックグラウンドで届くサムネイルを受信してストアに逐次反映
+  const { connect } = useWebSocket({ onThumbnailBatch: updateThumbnails })
+  useLayoutEffect(() => {
+    const socket = connect()
+    return () => { socket?.off('thumbnail_batch') }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   if (!scanResult) return null
 
   const { statistics, groups } = scanResult
 
-  // すべてのグループを類似度/スコア降順でソート
-  const sortedGroups = [...groups].sort((a, b) => b.similarity - a.similarity)
+  // 表示モードでフィルタリング
+  const isBadQuality = (g: FileGroup) => g.category.includes('ブレ画像') || g.category.includes('ノイズ画像')
+  const viewGroups = groups.filter(g => viewMode === 'bad_quality' ? isBadQuality(g) : !isBadQuality(g))
 
-  const filteredGroups = sortedGroups.filter(
-    (g) => !activeCategory || g.category === activeCategory
-  )
-
-  const categories = Array.from(
-    new Set(sortedGroups.map((g) => g.category))
-  ).sort((a, b) => {
-    // スコアが含まれるカテゴリ名をある程度ソート（数値降順が望ましいが簡易的に文字列ソート、あるいは最初のグループ順）
-    return a.localeCompare(b);
-  })
+  // 選択中のモードのグループを類似度/スコア降順でソート
+  const sortedGroups = [...viewGroups].sort((a, b) => b.similarity - a.similarity)
 
   const selectedCount = getSelectedCount(useAppStore.getState())
   const selectedSize = getSelectedSize(useAppStore.getState())
 
   // すべてのグループを一括選択
   const selectAllFiltered = () => {
-    filteredGroups.forEach((g) => selectAllInGroup(g))
+    sortedGroups.forEach((g) => selectAllInGroup(g))
   }
 
   return (
@@ -115,14 +120,40 @@ export default function ResultsScreen() {
         </div>
       </div>
 
-      {/* ── Tabs (Removed) & Select All Toolbar ── */}
-      <div className="bg-bg-card border-b border-border px-4 py-2 flex items-center justify-between">
-        <div className="text-sm font-medium text-text-primary px-2">
-          検出リスト（類似度・ブレ・ノイズが高い順）
+      {/* ── Tabs & Select All Toolbar ── */}
+      <div className="bg-bg-card border-b border-border px-4 flex items-stretch justify-between">
+        {/* ViewMode Tabs */}
+        <div className="flex gap-1">
+          <button
+            onClick={() => { setViewMode('duplicates'); setActiveCategory(null) }}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              viewMode === 'duplicates'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            類似・重複
+            <span className="text-xs text-text-muted">
+              ({groups.filter(g => !isBadQuality(g)).length})
+            </span>
+          </button>
+          <button
+            onClick={() => { setViewMode('bad_quality'); setActiveCategory(null) }}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              viewMode === 'bad_quality'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            ブレ・ノイズ
+            <span className="text-xs text-text-muted">
+              ({groups.filter(g => isBadQuality(g)).length})
+            </span>
+          </button>
         </div>
 
         {/* 一括選択ボタン */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 py-1.5">
           <button
             onClick={selectAllFiltered}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded-lg text-xs font-medium transition-colors"
@@ -140,84 +171,26 @@ export default function ResultsScreen() {
         </div>
       </div>
 
-      {/* ── Body: sidebar + main ── */}
-      <div className="flex-1 flex overflow-hidden">
-
-        {/* Left: category sidebar */}
-        <div className="w-52 border-r border-border bg-bg-card overflow-y-auto flex-shrink-0">
-          <div className="p-2 space-y-0.5">
-            <button
-              onClick={() => setActiveCategory(null)}
-              className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center justify-between ${
-                !activeCategory ? 'bg-primary/20 text-primary' : 'text-text-secondary hover:bg-bg-panel'
-              }`}
-            >
-              <span className="flex items-center gap-1.5">
-                <ChevronRight size={13} />
-                すべて
-              </span>
-              <span className="text-xs bg-bg-dark px-1.5 py-0.5 rounded">
-                {groups.length}
-              </span>
-            </button>
-            {categories.map((cat) => {
-              const count = groups.filter(g => g.category === cat).length
-              return (
-                <button
-                  key={cat}
-                  onClick={() => setActiveCategory(cat)}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center justify-between ${
-                    activeCategory === cat
-                      ? 'bg-primary/20 text-primary'
-                      : 'text-text-secondary hover:bg-bg-panel'
-                  }`}
-                >
-                  <span className="truncate text-xs">{cat}</span>
-                  <span className="text-xs bg-bg-dark px-1.5 py-0.5 rounded flex-shrink-0 ml-1">{count}</span>
-                </button>
-              )
-            })}
+      {/* ── Body: main list ── */}
+      <div className="flex-1 overflow-hidden">
+        {/* Main: results list */}
+        <div className="h-full bg-bg-base overflow-y-auto w-full p-4 space-y-4">
+          <div className="px-1">
+            <p className="text-xs text-text-muted">
+              {sortedGroups.length} グループ
+            </p>
           </div>
-        </div>
-
-        {/* Main: group cards */}
-        <div className="flex-1 overflow-y-auto bg-bg-dark">
-          <div className="p-3 space-y-3">
-            {/* Toolbar */}
-            <div className="flex items-center justify-between px-1">
-              <p className="text-xs text-text-muted">
-                {activeCategory
-                  ? `「${activeCategory}」- ${filteredGroups.length} グループ`
-                  : `${filteredGroups.length} グループ`}
-              </p>
-              {activeCategory && (
-                <button
-                  onClick={() => filteredGroups.forEach(g => selectAllInGroup(g))}
-                  className="text-xs text-primary hover:underline flex items-center gap-1"
-                >
-                  <CheckSquare size={12} />
-                  このカテゴリを全選択
-                </button>
-              )}
-            </div>
-
-            {filteredGroups.length === 0 ? (
-              <div className="text-center text-text-muted py-20 text-sm">
-                該当するファイルがありません
-              </div>
-            ) : (
-              filteredGroups.map((group) => (
+          {sortedGroups.map((group) => (
                 <GroupCard
                   key={group.groupId}
                   group={group}
                   selectedFileIds={selectedFileIds}
+                  thumbnails={thumbnails}
                   onToggle={toggleFileSelection}
                   onSelectAll={() => selectAllInGroup(group)}
                   onCompare={() => setCompareGroup(group)}
                 />
-              ))
-            )}
-          </div>
+              ))}
         </div>
       </div>
 
@@ -242,6 +215,7 @@ export default function ResultsScreen() {
         <CompareModal
           group={compareGroup}
           selectedFileIds={selectedFileIds}
+          thumbnails={thumbnails}
           onToggle={toggleFileSelection}
           onClose={() => setCompareGroup(null)}
         />
@@ -257,12 +231,14 @@ export default function ResultsScreen() {
 function GroupCard({
   group,
   selectedFileIds,
+  thumbnails,
   onToggle,
   onSelectAll,
   onCompare,
 }: {
   group: FileGroup
   selectedFileIds: Set<string>
+  thumbnails: Map<string, string>
   onToggle: (id: string) => void
   onSelectAll: () => void
   onCompare: () => void
@@ -306,6 +282,7 @@ function GroupCard({
           <ImageCell
             key={file.id}
             file={file}
+            thumbnail={thumbnails.get(file.id) ?? file.thumbnailBase64}
             selected={selectedFileIds.has(file.id)}
             onToggle={() => onToggle(file.id)}
             showDivider={idx < group.files.length - 1}
@@ -322,11 +299,13 @@ function GroupCard({
 
 function ImageCell({
   file,
+  thumbnail,
   selected,
   onToggle,
   showDivider,
 }: {
   file: FileInfo
+  thumbnail?: string
   selected: boolean
   onToggle: () => void
   showDivider: boolean
@@ -337,16 +316,16 @@ function ImageCell({
     <div className={`flex-shrink-0 w-52 flex flex-col ${showDivider ? 'border-r border-border' : ''}`}>
       {/* Thumbnail area */}
       <div className="relative bg-bg-dark overflow-hidden" style={{ height: '168px' }}>
-        {file.thumbnailBase64 ? (
+        {thumbnail ? (
           <img
-            src={`data:image/jpeg;base64,${file.thumbnailBase64}`}
+            src={`data:image/jpeg;base64,${thumbnail}`}
             alt={name}
             className="w-full h-full object-contain"
           />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-text-muted">
-            <Film size={36} className="opacity-30" />
-            <span className="text-xs opacity-50">プレビューなし</span>
+            <Film size={36} className="opacity-30 animate-pulse" />
+            <span className="text-xs opacity-50">読み込み中...</span>
           </div>
         )}
 
@@ -412,11 +391,13 @@ function ImageCell({
 function CompareModal({
   group,
   selectedFileIds,
+  thumbnails,
   onToggle,
   onClose,
 }: {
   group: FileGroup
   selectedFileIds: Set<string>
+  thumbnails: Map<string, string>
   onToggle: (id: string) => void
   onClose: () => void
 }) {
@@ -450,6 +431,7 @@ function CompareModal({
             <CompareCard
               key={file.id}
               file={file}
+              thumbnail={thumbnails.get(file.id) ?? file.thumbnailBase64}
               selected={selectedFileIds.has(file.id)}
               onToggle={() => onToggle(file.id)}
               onZoom={() => setZoomedFile(file)}
@@ -464,9 +446,9 @@ function CompareModal({
           className="absolute inset-0 bg-black/95 z-10 flex items-center justify-center cursor-zoom-out"
           onClick={() => setZoomedFile(null)}
         >
-          {zoomedFile.thumbnailBase64 ? (
+          {(thumbnails.get(zoomedFile.id) ?? zoomedFile.thumbnailBase64) ? (
             <img
-              src={`data:image/jpeg;base64,${zoomedFile.thumbnailBase64}`}
+              src={`data:image/jpeg;base64,${thumbnails.get(zoomedFile.id) ?? zoomedFile.thumbnailBase64}`}
               alt=""
               className="object-contain select-none"
               style={{ maxWidth: '92vw', maxHeight: '88vh' }}
@@ -495,11 +477,13 @@ function CompareModal({
 
 function CompareCard({
   file,
+  thumbnail,
   selected,
   onToggle,
   onZoom,
 }: {
   file: FileInfo
+  thumbnail?: string
   selected: boolean
   onToggle: () => void
   onZoom: () => void
@@ -523,16 +507,16 @@ function CompareCard({
         style={{ height: '240px' }}
         onClick={onZoom}
       >
-        {file.thumbnailBase64 ? (
+        {thumbnail ? (
           <img
-            src={`data:image/jpeg;base64,${file.thumbnailBase64}`}
+            src={`data:image/jpeg;base64,${thumbnail}`}
             alt={name}
             className="w-full h-full object-contain"
           />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-text-muted">
-            <Film size={48} className="opacity-30" />
-            <span className="text-xs opacity-50">プレビューなし</span>
+            <Film size={48} className="opacity-30 animate-pulse" />
+            <span className="text-xs opacity-50">読み込み中...</span>
           </div>
         )}
 

@@ -9,9 +9,10 @@ import socketio
 
 from ..core.scanner import ScanConfig, collect_files, scan_file_sync
 from ..core.grouper import group_files
+from ..core.hasher import generate_thumbnail
 from ..db.cache import get_cache_stats, purge_missing_entries, mark_deleted, get_deleted_paths
 
-sio = socketio.AsyncServer(cors_allowed_origins='*', async_mode='asgi')
+sio = socketio.AsyncServer(cors_allowed_origins='*', async_mode='asgi', max_http_buffer_size=10**9)
 
 # 最後のスキャン結果をグローバルに保持（sid に依存しないため再接続後も削除可能）
 latest_session: dict | None = None
@@ -253,3 +254,49 @@ async def _run_scan(sid: str, config: ScanConfig):
         },
         'groups': groups_data,
     }, to=sid)
+
+    # scan_complete 送信直後にサムネイルをバックグラウンドで生成開始
+    # → フロントエンドは結果画面をすぐに表示でき、サムネイルは逐次届く
+    scanned_map = {sf.id: sf for sf in scanned}
+    asyncio.ensure_future(_generate_thumbnails_bg(sid, groups, scanned_map, loop))
+
+
+async def _generate_thumbnails_bg(sid: str, groups, scanned_map: dict, loop):
+    """
+    scan_complete 後にバックグラウンドでサムネイルを並列生成し、
+    20件ごとに thumbnail_batch イベントとして送信する。
+    cancel_flags[sid] が True になると中断する。
+    """
+    # グループ順にファイルを列挙（表示順と一致させるため）
+    targets: list[tuple[str, object]] = []   # (file_id, ScannedFile)
+    for g in groups:
+        for file_info in g.files:
+            sf = scanned_map.get(file_info['id'])
+            if sf:
+                targets.append((file_info['id'], sf))
+
+    BATCH = 20   # 一度に並列生成する件数（_scan_executor のワーカー数と合わせる）
+
+    for batch_start in range(0, len(targets), BATCH):
+        if cancel_flags.get(sid):
+            break
+
+        batch = targets[batch_start:batch_start + BATCH]
+
+        # _scan_executor で並列実行（I/O 待ちが多いので 8 ワーカーが有効）
+        tasks = [
+            loop.run_in_executor(_scan_executor, generate_thumbnail, sf.path, sf.file_type)
+            for _, sf in batch
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # 成功したもののみ送信
+        batch_data: dict[str, str] = {}
+        for (file_id, _), result in zip(batch, results):
+            if isinstance(result, str) and result:
+                batch_data[file_id] = result
+
+        if batch_data:
+            await sio.emit('thumbnail_batch', {'thumbnails': batch_data}, to=sid)
+
+        await asyncio.sleep(0)  # イベントループをブロックしない

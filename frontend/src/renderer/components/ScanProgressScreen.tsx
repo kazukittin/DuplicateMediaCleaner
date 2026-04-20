@@ -30,6 +30,7 @@ export default function ScanProgressScreen() {
       // Remove our handlers on unmount so they don't linger after screen change
       socket?.off('scan_progress')
       socket?.off('scan_complete')
+      socket?.off('thumbnail_batch')
       socket?.off('error')
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps

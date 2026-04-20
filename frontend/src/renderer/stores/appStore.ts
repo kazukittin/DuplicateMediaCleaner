@@ -21,6 +21,8 @@ interface AppState {
   activeCategory: string | null
   backendPort: number  // 0 = not yet known
 
+  thumbnails: Map<string, string>   // fileId → base64（バックグラウンドで逐次届く）
+
   setScreen: (screen: AppScreen) => void
   setScanOptions: (opts: Partial<ScanOptions>) => void
   setScanProgress: (progress: ScanProgress | null) => void
@@ -33,6 +35,7 @@ interface AppState {
   setActiveTab: (tab: 'image' | 'video') => void
   setActiveCategory: (category: string | null) => void
   setBackendPort: (port: number) => void
+  updateThumbnails: (batch: Record<string, string>) => void
   reset: () => void
 }
 
@@ -56,6 +59,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeTab: 'image',
   activeCategory: null,
   backendPort: 0,
+  thumbnails: new Map(),
 
   setScreen: (screen) => set({ screen }),
   setScanOptions: (opts) =>
@@ -85,6 +89,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   setActiveCategory: (activeCategory) => set({ activeCategory }),
   setBackendPort: (backendPort) => set({ backendPort }),
 
+  updateThumbnails: (batch) =>
+    set((state) => {
+      const next = new Map(state.thumbnails)
+      for (const [id, b64] of Object.entries(batch)) {
+        next.set(id, b64)
+      }
+      return { thumbnails: next }
+    }),
+
   reset: () =>
     set({
       screen: 'home',
@@ -93,6 +106,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedFileIds: new Set(),
       deleteResult: null,
       activeCategory: null,
+      thumbnails: new Map(),
     }),
 }))
 
