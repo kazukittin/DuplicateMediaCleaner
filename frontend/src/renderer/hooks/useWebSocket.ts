@@ -34,7 +34,10 @@ export function useWebSocket(handlers: WSHandlers = {}) {
     if (handlers.onScanComplete) socket.on('scan_complete', handlers.onScanComplete)
     if (handlers.onDeleteProgress) socket.on('delete_progress', handlers.onDeleteProgress)
     if (handlers.onDeleteComplete) socket.on('delete_complete', handlers.onDeleteComplete)
-    if (handlers.onThumbnailBatch) socket.on('thumbnail_batch', (d: { thumbnails: Record<string, string> }) => handlers.onThumbnailBatch!(d.thumbnails))
+    if (handlers.onThumbnailBatch) socket.on('thumbnail_batch', (d: { thumbnails: Record<string, string> }) => {
+      console.log('[thumbnail_batch] received', Object.keys(d.thumbnails).length, 'thumbnails, sample id:', Object.keys(d.thumbnails)[0])
+      handlers.onThumbnailBatch!(d.thumbnails)
+    })
     if (handlers.onError) socket.on('error', (d: { message: string }) => handlers.onError!(d.message))
 
     return socket  // caller can use this reference for cleanup

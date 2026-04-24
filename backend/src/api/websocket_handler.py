@@ -10,7 +10,7 @@ import socketio
 from ..core.scanner import ScanConfig, collect_files, scan_file_sync
 from ..core.grouper import group_files
 from ..core.hasher import generate_thumbnail
-from ..db.cache import get_cache_stats, purge_missing_entries, mark_deleted, get_deleted_paths
+from ..db.cache import get_cache_stats, purge_missing_entries, mark_deleted, get_deleted_paths, update_thumbnail_cache
 
 sio = socketio.AsyncServer(cors_allowed_origins='*', async_mode='asgi', max_http_buffer_size=10**9)
 
@@ -263,40 +263,163 @@ async def _run_scan(sid: str, config: ScanConfig):
 
 async def _generate_thumbnails_bg(sid: str, groups, scanned_map: dict, loop):
     """
-    scan_complete 後にバックグラウンドでサムネイルを並列生成し、
-    20件ごとに thumbnail_batch イベントとして送信する。
-    cancel_flags[sid] が True になると中断する。
+    scan_complete 後にバックグラウンドでサムネイルを並列生成する。
+
+    優先順位:
+      1. キャッシュ済みサムネイル → 即座にまとめて送信（生成不要）
+      2. 各グループ先頭2ファイル（ユーザーが最初に目にする）
+      3. 残りのファイル（上限 MAX_TAIL まで）
+
+    生成したサムネイルは DB にキャッシュし、次回スキャン時は即表示。
     """
-    # グループ順にファイルを列挙（表示順と一致させるため）
-    targets: list[tuple[str, object]] = []   # (file_id, ScannedFile)
-    for g in groups:
-        for file_info in g.files:
-            sf = scanned_map.get(file_info['id'])
-            if sf:
-                targets.append((file_info['id'], sf))
+    try:
+        # フロントエンドが scan_complete を受信して ResultsScreen をマウントし
+        # thumbnail_batch ハンドラを登録するまでの時間を確保する
+        await asyncio.sleep(0.5)
 
-    BATCH = 20   # 一度に並列生成する件数（_scan_executor のワーカー数と合わせる）
+        print(f'[thumb] start: {len(groups)} groups, {len(scanned_map)} files in map')
 
-    for batch_start in range(0, len(targets), BATCH):
-        if cancel_flags.get(sid):
-            break
+        MAX_DUP_GROUPS = 200    # 重複・類似グループの優先対象上限
+        MAX_DUP_FILES  = 2      # グループあたりの優先ファイル数
+        MAX_BAD_GROUPS = 300    # ブレ・ノイズグループの優先対象上限
+        MAX_TAIL       = 100    # それ以降の補完ファイル上限
+        BATCH = _WORKERS        # 一度に asyncio.gather する件数
 
-        batch = targets[batch_start:batch_start + BATCH]
+        def _is_bad_quality(g) -> bool:
+            return 'ブレ' in g.category or 'ノイズ' in g.category
 
-        # _scan_executor で並列実行（I/O 待ちが多いので 8 ワーカーが有効）
-        tasks = [
-            loop.run_in_executor(_scan_executor, generate_thumbnail, sf.path, sf.file_type)
-            for _, sf in batch
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # ── Phase 0: キャッシュ済みサムネイルを 50 件ずつ送信 ──────────────
+        cached_batch: dict[str, str] = {}
+        for g in groups:
+            for file_info in g.files:
+                sf = scanned_map.get(file_info['id'])
+                if sf and sf.thumbnail_b64:
+                    cached_batch[file_info['id']] = sf.thumbnail_b64
 
-        # 成功したもののみ送信
-        batch_data: dict[str, str] = {}
-        for (file_id, _), result in zip(batch, results):
-            if isinstance(result, str) and result:
-                batch_data[file_id] = result
+        print(f'[thumb] phase0: {len(cached_batch)} cached thumbnails')
+        cached_items = list(cached_batch.items())
+        for i in range(0, len(cached_items), 50):
+            chunk = dict(cached_items[i:i + 50])
+            await sio.emit('thumbnail_batch', {'thumbnails': chunk}, to=sid)
+            await asyncio.sleep(0)
 
-        if batch_data:
-            await sio.emit('thumbnail_batch', {'thumbnails': batch_data}, to=sid)
+        already_sent = set(cached_batch.keys())
 
-        await asyncio.sleep(0)  # イベントループをブロックしない
+        def _collect(group_iter, max_groups: int, max_files_per_group: int) -> list:
+            result = []
+            count = 0
+            for g in group_iter:
+                if count >= max_groups:
+                    break
+                added = False
+                for file_info in g.files[:max_files_per_group]:
+                    fid = file_info['id']
+                    if fid in already_sent:
+                        continue
+                    sf = scanned_map.get(fid)
+                    if sf:
+                        result.append((fid, sf))
+                        added = True
+                if added:
+                    count += 1
+            return result
+
+        # ── Phase 1a: 重複・類似グループ（類似度降順・先頭 2 ファイル × 200 グループ）──
+        dup_groups = sorted(
+            [g for g in groups if not _is_bad_quality(g)],
+            key=lambda g: g.similarity, reverse=True
+        )
+        # ── Phase 1b: ブレ・ノイズグループ（スコア降順・1 ファイル × 300 グループ）──
+        # フロントエンドも similarity 降順で表示するため、同じ順で処理する
+        bad_groups = sorted(
+            [g for g in groups if _is_bad_quality(g)],
+            key=lambda g: g.similarity, reverse=True
+        )
+        priority_dup = _collect(dup_groups, MAX_DUP_GROUPS, MAX_DUP_FILES)
+
+        priority_ids_so_far = already_sent | {fid for fid, _ in priority_dup}
+        priority_bad: list[tuple[str, object]] = []
+        bad_count = 0
+        for g in bad_groups:
+            if bad_count >= MAX_BAD_GROUPS:
+                break
+            for file_info in g.files[:1]:
+                fid = file_info['id']
+                if fid in priority_ids_so_far:
+                    continue
+                sf = scanned_map.get(fid)
+                if sf:
+                    priority_bad.append((fid, sf))
+                    bad_count += 1
+
+        # ── Phase 2: 残り補完（上限付き）─────────────────────────────────
+        all_priority_ids = priority_ids_so_far | {fid for fid, _ in priority_bad}
+        tail: list[tuple[str, object]] = []
+        for g in groups:
+            for file_info in g.files:
+                fid = file_info['id']
+                if fid in all_priority_ids:
+                    continue
+                sf = scanned_map.get(fid)
+                if sf and not sf.thumbnail_b64:
+                    tail.append((fid, sf))
+                if len(tail) >= MAX_TAIL:
+                    break
+            if len(tail) >= MAX_TAIL:
+                break
+
+        all_targets = priority_dup + priority_bad + tail
+        print(f'[thumb] dup={len(priority_dup)} bad={len(priority_bad)} tail={len(tail)} total={len(all_targets)}')
+
+        def _gen_and_cache(sf) -> str | None:
+            """スレッド内でサムネイル生成 → DB キャッシュ更新（キャッシュ済みならそのまま返す）"""
+            try:
+                # キャッシュ済みサムネイルがあればそのまま返す（再生成不要）
+                if sf.thumbnail_b64:
+                    return sf.thumbnail_b64
+                thumb = generate_thumbnail(sf.path, sf.file_type)
+                if thumb:
+                    try:
+                        update_thumbnail_cache(sf.path, thumb)
+                    except Exception as e:
+                        print(f'[thumb] cache update error: {e}')
+                else:
+                    print(f'[thumb] generate_thumbnail returned None: {sf.path} (type={sf.file_type})')
+                return thumb
+            except Exception as e:
+                print(f'[thumb] _gen_and_cache exception: {sf.path}: {e}')
+                return None
+
+        generated = 0
+        for batch_start in range(0, len(all_targets), BATCH):
+            if cancel_flags.get(sid):
+                print('[thumb] cancelled')
+                break
+
+            batch = all_targets[batch_start:batch_start + BATCH]
+            tasks = [
+                loop.run_in_executor(_scan_executor, _gen_and_cache, sf)
+                for _, sf in batch
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            batch_data: dict[str, str] = {}
+            for (file_id, _), result in zip(batch, results):
+                if isinstance(result, Exception):
+                    print(f'[thumb] gather exception: {result}')
+                elif isinstance(result, str) and result:
+                    batch_data[file_id] = result
+                    generated += 1
+
+            if batch_data:
+                await sio.emit('thumbnail_batch', {'thumbnails': batch_data}, to=sid)
+                print(f'[thumb] sent {len(batch_data)} thumbnails (total: {generated})')
+
+            await asyncio.sleep(0)
+
+        print(f'[thumb] done. generated={generated}')
+
+    except Exception as e:
+        import traceback
+        print(f'[thumb] FATAL ERROR: {e}')
+        traceback.print_exc()

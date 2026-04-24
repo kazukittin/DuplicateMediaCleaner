@@ -65,7 +65,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   setScanOptions: (opts) =>
     set((state) => ({ scanOptions: { ...state.scanOptions, ...opts } })),
   setScanProgress: (scanProgress) => set({ scanProgress }),
-  setScanResult: (scanResult) => set({ scanResult }),
+  // 新しいスキャン結果をセットする際、前回スキャンのサムネイルIDとの混在を防ぐためリセット
+  setScanResult: (scanResult) => set({ scanResult, thumbnails: new Map() }),
 
   toggleFileSelection: (fileId) =>
     set((state) => {
@@ -95,6 +96,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       for (const [id, b64] of Object.entries(batch)) {
         next.set(id, b64)
       }
+      console.log('[store] thumbnails updated, total:', next.size)
       return { thumbnails: next }
     }),
 

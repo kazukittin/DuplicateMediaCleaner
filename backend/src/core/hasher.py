@@ -70,20 +70,24 @@ def compute_video_frame_hashes(filepath: str) -> tuple[Optional[str], Optional[s
         return None, None
 
 
-def generate_thumbnail(filepath: str, file_type: str, max_size: int = 360) -> Optional[str]:
+def generate_thumbnail(filepath: str, file_type: str, max_size: int = 200) -> Optional[str]:
     try:
         if file_type == 'image':
-            # サムネイル生成でも日本語パスに対応するため np.fromfile を使用
+            # まず np.fromfile + cv2.imdecode を試みる（日本語パス対応）
             nparr = np.fromfile(filepath, np.uint8)
             cv_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            if cv_img is None:
-                return None
-            img = Image.fromarray(cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB))
+            if cv_img is not None:
+                img = Image.fromarray(cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB))
+            else:
+                # フォールバック: PIL で直接開く
+                print(f'[thumb] cv2.imdecode failed, trying PIL fallback: {filepath}')
+                img = Image.open(filepath).convert('RGB')
         else:
             cap = cv2.VideoCapture(filepath)
             ret, frame = cap.read()
             cap.release()
             if not ret:
+                print(f'[thumb] VideoCapture read failed: {filepath}')
                 return None
             img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
@@ -91,7 +95,8 @@ def generate_thumbnail(filepath: str, file_type: str, max_size: int = 360) -> Op
         buf = io.BytesIO()
         img.save(buf, format='JPEG', quality=75)
         return base64.b64encode(buf.getvalue()).decode('utf-8')
-    except Exception:
+    except Exception as e:
+        print(f'[thumb] generate_thumbnail exception ({filepath}): {e}')
         return None
 
 

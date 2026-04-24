@@ -36,6 +36,7 @@ export default function ResultsScreen() {
 
   const [compareGroup, setCompareGroup] = useState<FileGroup | null>(null)
   const [viewMode, setViewMode] = useState<'duplicates' | 'bad_quality'>('duplicates')
+  const [displayLimit, setDisplayLimit] = useState(100)
 
   // バックグラウンドで届くサムネイルを受信してストアに逐次反映
   const { connect } = useWebSocket({ onThumbnailBatch: updateThumbnails })
@@ -55,6 +56,7 @@ export default function ResultsScreen() {
 
   // 選択中のモードのグループを類似度/スコア降順でソート
   const sortedGroups = [...viewGroups].sort((a, b) => b.similarity - a.similarity)
+  const visibleGroups = sortedGroups.slice(0, displayLimit)
 
   const selectedCount = getSelectedCount(useAppStore.getState())
   const selectedSize = getSelectedSize(useAppStore.getState())
@@ -125,7 +127,7 @@ export default function ResultsScreen() {
         {/* ViewMode Tabs */}
         <div className="flex gap-1">
           <button
-            onClick={() => { setViewMode('duplicates'); setActiveCategory(null) }}
+            onClick={() => { setViewMode('duplicates'); setActiveCategory(null); setDisplayLimit(100) }}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
               viewMode === 'duplicates'
                 ? 'border-primary text-primary'
@@ -138,7 +140,7 @@ export default function ResultsScreen() {
             </span>
           </button>
           <button
-            onClick={() => { setViewMode('bad_quality'); setActiveCategory(null) }}
+            onClick={() => { setViewMode('bad_quality'); setActiveCategory(null); setDisplayLimit(100) }}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
               viewMode === 'bad_quality'
                 ? 'border-primary text-primary'
@@ -177,20 +179,33 @@ export default function ResultsScreen() {
         <div className="h-full bg-bg-base overflow-y-auto w-full p-4 space-y-4">
           <div className="px-1">
             <p className="text-xs text-text-muted">
-              {sortedGroups.length} グループ
+              {sortedGroups.length} グループ（表示中: {visibleGroups.length}）
             </p>
           </div>
-          {sortedGroups.map((group) => (
-                <GroupCard
-                  key={group.groupId}
-                  group={group}
-                  selectedFileIds={selectedFileIds}
-                  thumbnails={thumbnails}
-                  onToggle={toggleFileSelection}
-                  onSelectAll={() => selectAllInGroup(group)}
-                  onCompare={() => setCompareGroup(group)}
-                />
-              ))}
+          {visibleGroups.map((group) => (
+            <GroupCard
+              key={group.groupId}
+              group={group}
+              selectedFileIds={selectedFileIds}
+              thumbnails={thumbnails}
+              onToggle={toggleFileSelection}
+              onSelectAll={() => selectAllInGroup(group)}
+              onCompare={() => setCompareGroup(group)}
+            />
+          ))}
+          {displayLimit < sortedGroups.length && (
+            <div className="flex flex-col items-center gap-2 py-4">
+              <p className="text-xs text-text-muted">
+                残り {sortedGroups.length - displayLimit} グループ
+              </p>
+              <button
+                onClick={() => setDisplayLimit(d => d + 100)}
+                className="px-6 py-2 bg-bg-card border border-border hover:border-primary text-text-secondary hover:text-primary rounded-lg text-sm transition-colors"
+              >
+                さらに 100 件表示
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

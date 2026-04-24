@@ -119,6 +119,16 @@ def store_cached(
         conn.commit()
 
 
+def update_thumbnail_cache(path: str, thumbnail_b64: str) -> None:
+    """既存キャッシュエントリのサムネイルだけを更新する（生成後に呼び出す）。"""
+    with engine.connect() as conn:
+        conn.execute(
+            text('UPDATE file_hash_cache SET thumbnail_b64 = :thumb WHERE path = :path'),
+            {'thumb': thumbnail_b64, 'path': path},
+        )
+        conn.commit()
+
+
 def purge_missing_entries() -> int:
     """Remove cache entries whose files no longer exist."""
     import os
