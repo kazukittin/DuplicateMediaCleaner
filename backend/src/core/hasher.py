@@ -111,39 +111,58 @@ def phash_distance(h1: str, h2: str) -> float:
         return 0.0
 
 def compute_quality_scores(filepath: str, file_type: str) -> tuple[int, int]:
-    """Returns (blur_score, noise_score) from 0 to 100, where higher is worse (more blurry/noisy)."""
+    """
+    Returns (blur_score, noise_score) from 0 to 100, where higher is worse.
+    手振れ・被写体ブレを重点的に検出する。
+    """
     try:
         if file_type == 'image':
-            # 日本語パス対応のために np.fromfile と cv2.imdecode を使用
             nparr = np.fromfile(filepath, np.uint8)
             img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
         else:
             cap = cv2.VideoCapture(filepath)
-            # 映像の真ん中あたりのフレームを取得
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, total_frames // 2))
             ret, frame = cap.read()
             cap.release()
             if not ret: return 0, 0
             img = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            
+
         if img is None: return 0, 0
-        
-        # Blur score: using Laplacian variance (high variance = sharp, low variance = blurry)
-        lap_var = cv2.Laplacian(img, cv2.CV_64F).var()
-        # threshold ~100 is typically considered blurry. We map variance to a 0-100 score.
-        # var: 0 -> 100%, var: 300+ -> 0%
-        blur_score = int(max(0, min(100, 100 - (lap_var / 3.0))))
-        
-        # Noise score: subtract median blur and find mean absolute difference
+
+        # ── ブレ検出 ────────────────────────────────────────────────────────
+        # Step 1: ラプラシアン分散（全体的なブレ・ピンぼけを捉える）
+        lap_var = float(cv2.Laplacian(img, cv2.CV_64F).var())
+
+        # Step 2: Sobel 勾配の方向性分析（手振れ・被写体ブレは一方向に集中する）
+        sobelx = cv2.Sobel(img, cv2.CV_64F, 1, 0, ksize=3)
+        sobely = cv2.Sobel(img, cv2.CV_64F, 0, 1, ksize=3)
+        var_x = float(np.var(sobelx))
+        var_y = float(np.var(sobely))
+        total_grad = var_x + var_y + 1e-10
+
+        # 方向性ブレ指標 (0=等方的=ピンぼけ寄り, 1=一方向=手振れ・被写体ブレ)
+        motion_asymmetry = abs(var_x - var_y) / total_grad
+
+        # Step 3: スコア計算
+        # ベース: ラプラシアン分散が低いほど高スコア（ピンぼけ・全体ブレを検出）
+        # var ~0 -> 100点, var ~300 -> 0点
+        base_blur = max(0.0, 100.0 - (lap_var / 3.0))
+
+        # ブースト: 方向性ブレ（手振れ・被写体ブレ）は追加ポイント
+        # ラプラシアン分散が中程度（30〜600）かつ方向性が高い場合に効果大
+        # 完全にシャープな画像（lap_var > 600）はブーストされない
+        motion_sensitivity = max(0.0, 1.0 - lap_var / 600.0)
+        motion_boost = motion_asymmetry * motion_sensitivity * 40.0
+
+        blur_score = int(min(100, base_blur + motion_boost))
+
+        # ── ノイズ検出 ──────────────────────────────────────────────────────
         blurred = cv2.medianBlur(img, 3)
         diff = cv2.absdiff(img, blurred)
         noise_mean = float(np.mean(diff))
-        # mean diff for clean/smooth is 1-3, detailed textures (grass) can be 10-20.
-        # true high frequency noise will have high mean diff even in non-detailed regions.
-        # We make it less sensitive so it only hits extremely noisy images.
         noise_score = int(max(0, min(100, (noise_mean - 8.0) * 5.0)))
-        
+
         return blur_score, noise_score
     except Exception:
         return 0, 0
