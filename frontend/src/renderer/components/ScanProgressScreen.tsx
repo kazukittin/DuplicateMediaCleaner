@@ -49,61 +49,57 @@ export default function ScanProgressScreen() {
       : 0
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-bg-base">
       {/* Header */}
-      <div className="bg-bg-card border-b border-border px-6 py-4 flex items-center gap-3">
-        <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-          <HardDrive size={18} className="text-white" />
-        </div>
-        <div>
-          <h1 className="text-lg font-bold text-primary">DuplicateMediaCleaner</h1>
-          <p className="text-xs text-text-secondary">スキャン中...</p>
-        </div>
+      <div className="bg-bg-panel border-b border-border px-4 py-2 flex items-center gap-3">
+        <HardDrive size={16} className="text-primary" />
+        <span className="text-sm font-medium text-text-primary">DuplicateMediaCleaner</span>
+        <span className="text-xs text-text-muted">— スキャン中...</span>
       </div>
 
       <div className="flex-1 flex items-center justify-center p-8">
-        <div className="w-full max-w-lg space-y-6">
+        <div className="w-full max-w-lg space-y-5">
           {/* Spinner */}
           <div className="flex justify-center">
-            <Loader2 size={56} className="text-primary animate-spin" />
+            <Loader2 size={48} className="text-primary animate-spin" />
           </div>
 
           <div className="text-center">
-            <p className="text-lg font-semibold text-text-primary">
+            <p className="text-base font-semibold text-text-primary">
               {scanProgress?.phase ?? 'スキャン準備中...'}
             </p>
-            <p className="text-sm text-text-secondary mt-1 truncate px-4" title={scanProgress?.currentFile}>
+            <p className="text-xs text-text-secondary mt-1 truncate px-4" title={scanProgress?.currentFile}>
               {scanProgress?.currentFile ?? scanOptions.folderPath}
             </p>
           </div>
 
           {/* Progress bar */}
-          <div className="bg-bg-card rounded-xl border border-border p-6 space-y-4">
+          <div className="bg-bg-card border border-border p-5 space-y-3">
             <div className="flex justify-between text-sm">
               <span className="text-text-secondary">進捗</span>
               <span className="font-bold text-primary">{percent}%</span>
             </div>
-            <div className="h-3 bg-bg-dark rounded-full overflow-hidden">
+            <div className="h-2.5 bg-bg-panel border border-border overflow-hidden">
               <div
-                className={`h-full rounded-full transition-all duration-300 ${isGrouping ? 'bg-secondary' : 'bg-primary'}`}
+                className={`h-full transition-all duration-300 ${isGrouping ? 'bg-secondary' : 'bg-primary'}`}
                 style={{ width: `${percent}%` }}
               />
             </div>
             <div className="grid grid-cols-3 gap-4 text-center text-sm">
               <div>
-                <p className="text-text-muted text-xs uppercase">処理済み</p>
+                <p className="text-text-muted text-xs">処理済み</p>
                 <p className="font-bold text-text-primary">
                   {(scanProgress?.processed ?? 0).toLocaleString()}
                 </p>
               </div>
               <div>
-                <p className="text-text-muted text-xs uppercase">合計</p>
+                <p className="text-text-muted text-xs">合計</p>
                 <p className="font-bold text-text-primary">
                   {(scanProgress?.total ?? 0).toLocaleString()}
                 </p>
               </div>
               <div>
-                <p className="text-text-muted text-xs uppercase">{isGrouping ? 'グループ数' : '速度'}</p>
+                <p className="text-text-muted text-xs">{isGrouping ? 'グループ数' : '速度'}</p>
                 <p className="font-bold text-text-primary">
                   {isGrouping
                     ? `${percent}%`
@@ -126,23 +122,28 @@ export default function ScanProgressScreen() {
           </div>
 
           {errorMsg && (
-            <div className="bg-red-500/10 border border-red-500/40 rounded-xl p-4 flex items-start gap-3">
-              <AlertTriangle size={18} className="text-red-400 mt-0.5 shrink-0" />
+            <div className="bg-red-50 border border-red-300 p-3 flex items-start gap-2">
+              <AlertTriangle size={16} className="text-accent mt-0.5 shrink-0" />
               <div>
-                <p className="text-sm font-semibold text-red-400">エラーが発生しました</p>
-                <p className="text-xs text-red-300 mt-1 break-all">{errorMsg}</p>
+                <p className="text-sm font-semibold text-accent">エラーが発生しました</p>
+                <p className="text-xs text-red-700 mt-1 break-all">{errorMsg}</p>
               </div>
             </div>
           )}
 
           <button
             onClick={handleCancel}
-            className="w-full py-3 border border-border hover:border-accent hover:text-accent text-text-secondary rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+            className="w-full py-2 border border-border hover:border-accent hover:text-accent text-text-secondary text-sm font-medium transition-colors flex items-center justify-center gap-2 bg-bg-card"
           >
-            <X size={16} />
+            <X size={15} />
             {errorMsg ? 'ホームに戻る' : 'キャンセル'}
           </button>
         </div>
+      </div>
+
+      {/* Status bar */}
+      <div className="border-t border-border bg-bg-panel px-3 py-0.5 text-xs text-text-muted">
+        スキャン中: {scanOptions.folderPath}
       </div>
     </div>
   )

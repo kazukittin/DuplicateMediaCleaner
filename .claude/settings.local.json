@@ -10,7 +10,8 @@
       "Bash(rm -rf E:/DuplicateMediaCleaner/frontend/dist-electron)",
       "Bash(npx vite *)",
       "Bash(python -c \"from backend.src.core.grouper import group_files; print\\('OK'\\)\")",
-      "Bash(python -c \"from backend.src.api.websocket_handler import sio; print\\('OK'\\)\")"
+      "Bash(python -c \"from backend.src.api.websocket_handler import sio; print\\('OK'\\)\")",
+      "Bash(npx tsc *)"
     ]
   }
 }

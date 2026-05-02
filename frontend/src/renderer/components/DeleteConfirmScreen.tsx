@@ -51,13 +51,13 @@ export default function DeleteConfirmScreen() {
         : 0
 
     return (
-      <div className="flex-1 flex items-center justify-center p-8">
-        <div className="w-full max-w-md text-center space-y-6">
-          <Loader2 size={48} className="text-accent animate-spin mx-auto" />
-          <p className="text-lg font-semibold text-text-primary">削除中...</p>
-          <div className="h-3 bg-bg-dark rounded-full overflow-hidden">
+      <div className="flex-1 flex items-center justify-center p-8 bg-bg-base">
+        <div className="w-full max-w-md text-center space-y-5">
+          <Loader2 size={40} className="text-accent animate-spin mx-auto" />
+          <p className="text-base font-semibold text-text-primary">削除中...</p>
+          <div className="h-2.5 bg-bg-panel border border-border overflow-hidden">
             <div
-              className="h-full bg-accent rounded-full transition-all duration-300"
+              className="h-full bg-accent transition-all duration-300"
               style={{ width: `${percent}%` }}
             />
           </div>
@@ -70,16 +70,16 @@ export default function DeleteConfirmScreen() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="bg-bg-card border-b border-border px-6 py-4 flex items-center gap-3">
-        <AlertTriangle size={20} className="text-accent" />
-        <h1 className="text-lg font-bold text-text-primary">削除の確認</h1>
+    <div className="flex flex-col h-full bg-bg-base">
+      <div className="bg-bg-panel border-b border-border px-4 py-2 flex items-center gap-2">
+        <AlertTriangle size={15} className="text-accent" />
+        <h1 className="text-sm font-medium text-text-primary">削除の確認</h1>
       </div>
 
       <div className="flex-1 flex items-center justify-center p-8">
-        <div className="w-full max-w-lg space-y-6">
+        <div className="w-full max-w-lg space-y-4">
           {/* Summary */}
-          <div className="bg-bg-card border border-border rounded-xl p-6 space-y-4">
+          <div className="bg-bg-card border border-border p-4 space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-text-secondary">削除対象ファイル数</span>
               <span className="font-bold text-accent">{selectedCount} 件</span>
@@ -91,9 +91,9 @@ export default function DeleteConfirmScreen() {
           </div>
 
           {/* Delete method */}
-          <div className="bg-bg-card border border-border rounded-xl p-6 space-y-4">
+          <div className="bg-bg-card border border-border p-4 space-y-3">
             <h2 className="text-sm font-semibold text-text-primary">削除方法</h2>
-            <div className="space-y-3">
+            <div className="space-y-2">
               <label className="flex items-start gap-3 cursor-pointer">
                 <input
                   type="radio"
@@ -124,9 +124,9 @@ export default function DeleteConfirmScreen() {
           </div>
 
           {deleteMethod === 'permanent' && (
-            <div className="bg-red-900/20 border border-red-500/50 rounded-lg px-4 py-3 flex items-start gap-2">
-              <AlertTriangle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-red-400">
+            <div className="bg-red-50 border border-red-300 px-3 py-2 flex items-start gap-2">
+              <AlertTriangle size={14} className="text-accent flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-red-700">
                 完全削除を選択しました。この操作は元に戻せません。
                 実行前にバックアップを確認してください。
               </p>
@@ -136,20 +136,25 @@ export default function DeleteConfirmScreen() {
           <div className="flex gap-3">
             <button
               onClick={() => setScreen('results')}
-              className="flex-1 py-3 border border-border hover:border-primary text-text-secondary hover:text-primary rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2"
+              className="flex-1 py-2 border border-border hover:border-primary text-text-secondary hover:text-primary text-sm font-medium transition-colors flex items-center justify-center gap-2 bg-bg-card"
             >
-              <X size={16} />
+              <X size={15} />
               キャンセル
             </button>
             <button
               onClick={handleDelete}
-              className="flex-1 py-3 bg-accent hover:bg-accent/80 text-white rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2"
+              className="flex-1 py-2 bg-accent hover:bg-red-700 text-white text-sm font-bold transition-colors flex items-center justify-center gap-2"
             >
-              <Trash2 size={16} />
+              <Trash2 size={15} />
               削除実行
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Status bar */}
+      <div className="border-t border-border bg-bg-panel px-3 py-0.5 text-xs text-text-muted">
+        削除方法: {deleteMethod === 'trash' ? 'ごみ箱へ移動' : '完全削除'}
       </div>
     </div>
   )

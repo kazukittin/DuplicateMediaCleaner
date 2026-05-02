@@ -28,10 +28,10 @@ class ScreenErrorBoundary extends Component<{ children: ReactNode }, EBState> {
     if (this.state.hasError) {
       return (
         <div className="flex-1 flex items-center justify-center flex-col gap-4 p-8 text-center">
-          <p className="text-red-400 font-semibold">画面の表示中にエラーが発生しました</p>
+          <p className="text-accent font-semibold">画面の表示中にエラーが発生しました</p>
           <p className="text-xs text-text-muted font-mono break-all max-w-lg">{this.state.message}</p>
           <button
-            className="px-4 py-2 bg-primary text-white rounded-lg text-sm"
+            className="px-4 py-2 bg-primary text-white text-sm"
             onClick={() => {
               this.setState({ hasError: false, message: '' })
               useAppStore.getState().reset()
@@ -57,7 +57,7 @@ export default function App() {
   }, [setBackendPort])
 
   return (
-    <div className="h-screen bg-bg-dark flex flex-col overflow-hidden">
+    <div className="h-screen bg-bg-base flex flex-col overflow-hidden">
       <ScreenErrorBoundary>
         {screen === 'home'           && <HomeScreen />}
         {screen === 'scanning'       && <ScanProgressScreen />}
